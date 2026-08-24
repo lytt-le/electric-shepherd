@@ -1,0 +1,13 @@
+# nothing here needs building, so there is very little to ignore
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# exported work, in case you keep flocks or renders beside the app
+*.sheep.json
+*.flock.json
+*.webm
+*.png
+!docs/**/*.png

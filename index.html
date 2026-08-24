@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Electric Shepherd — local flame engine</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand"><span class="mark">◈</span> Electric Shepherd<span class="sub">local flame engine</span></div>
+    <div class="transport">
+      <button id="btnPlay" class="primary" title="Space">Pause</button>
+      <button id="btnRandom" title="R — brand new random sheep">Random</button>
+      <button id="btnMutate" title="M — mutate the current sheep">Mutate</button>
+      <button id="btnFit" title="F — auto-frame the flame">Fit</button>
+      <button id="btnKeep" title="K — save to the flock">Keep</button>
+      <button id="btnStream" title="S — start / stop the stream">Stream</button>
+      <button id="btnClearAcc" title="C — restart the exposure">Clear</button>
+      <button id="btnFull" title="V — fullscreen viewfinder (U hides the panels without going fullscreen)">⛶</button>
+      <button id="btnHelp" title="? or F1 — the handbook">?</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="readout" id="readout"></div>
+  </header>
+
+  <div class="main">
+    <section class="stage">
+      <div class="canvaswrap" id="canvaswrap">
+        <canvas id="glcanvas"></canvas>
+        <div class="overlay" id="overlay"></div>
+        <button class="exitcinema" id="btnExitCinema" title="Esc — back to the panels">⛶ Exit</button>
+        <div class="msg" id="msg"></div>
+      </div>
+      <div class="filmstrip" id="filmstrip"></div>
+    </section>
+
+    <aside class="panel">
+      <nav class="tabs" id="tabs">
+        <button data-tab="sheep" class="active">Sheep</button>
+        <button data-tab="transforms">Transforms</button>
+        <button data-tab="palette">Palette</button>
+        <button data-tab="render">Image</button>
+        <button data-tab="loop">Loop</button>
+        <button data-tab="evolve">Evolve</button>
+        <button data-tab="stream">Stream</button>
+        <button data-tab="output">Render</button>
+        <button data-tab="library">Flock</button>
+      </nav>
+      <div class="panes" id="panes">
+        <div class="pane active" data-pane="sheep"></div>
+        <div class="pane" data-pane="transforms"></div>
+        <div class="pane" data-pane="palette"></div>
+        <div class="pane" data-pane="render"></div>
+        <div class="pane" data-pane="loop"></div>
+        <div class="pane" data-pane="evolve"></div>
+        <div class="pane" data-pane="stream"></div>
+        <div class="pane" data-pane="output"></div>
+        <div class="pane" data-pane="library"></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<input type="file" id="fileImport" accept=".json,application/json" multiple style="display:none">
+<canvas id="thumbcanvas" width="256" height="160" style="display:none"></canvas>
+
+<script src="js/variations.js"></script>
+<script src="js/shaders.js"></script>
+<script src="js/palette.js"></script>
+<script src="js/genome.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/evolve.js"></script>
+<script src="js/library.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<!-- js/help.js mirrors README.md by hand: edit both together -->
+<script src="js/help.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
