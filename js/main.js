@@ -51,6 +51,8 @@
       mode: 'play', phase: 0, loopsLeft: 1, lastOrigin: ''
     },
     loopPhase: 0,
+    // the trail of sheep already seen, so the left arrow has somewhere to go
+    history: [],
     // a viewing adjustment layered on top of whatever is playing. The stream
     // rewrites the genome every frame, so a camera edit there would be wiped
     // instantly; this rides on top instead and survives sheep changes.
@@ -194,6 +196,9 @@
 
   function setGenome(g, opts) {
     opts = opts || {};
+    // every non-stream sheep change funnels through here, so this one line
+    // covers random, mutate, the flock, evolve, drag-and-drop and pasted JSON
+    if (opts.history !== false) pushHistory(app.genome);
     app.genome = GEN.normalize(g);
     app.selectedXform = Math.min(app.selectedXform, app.genome.xforms.length - 1);
     app.renderer.setGenome(app.genome);
@@ -1979,6 +1984,7 @@
   /* Choose what this leg of the stream morphs into. */
   function streamAdvance() {
     var s = app.stream;
+    pushHistory(s.current, s.idx);   // s.idx still belongs to the outgoing sheep
     if (s.driftLeft > 0) {
       s.next = finishBreeding('drift');
       if (!s.next) { startDriftBreeding(s.current); s.next = finishBreeding('drift'); }
@@ -2742,6 +2748,57 @@
     toast('New sheep: ' + app.genome.name);
   }
 
+  /* ---------------- the trail behind ------------------------------------
+     The stream only ever walks forward, and in endless mode the next sheep
+     is grown rather than picked off a list, so there is nothing to rewind to
+     unless we keep the trail ourselves. Every sheep that actually reaches
+     the screen is pushed here on the way out, as a settled clone - settled
+     because a genome caught mid-morph carries cross-fade fields describing a
+     moment rather than a sheep, and a clone because the live one keeps being
+     edited underneath us.
+
+     Each entry remembers the playlist position it was playing at, so walking
+     back into the flock leaves the stream pointing where it actually is
+     rather than where it had got to. */
+  var HISTORY_MAX = 40;
+  function pushHistory(g, idx) {
+    if (!g) return;
+    var h = app.history;
+    if (h.length && h[h.length - 1].g.id === g.id) return;
+    h.push({ g: GEN.settle(GEN.rawClone(g)), idx: (idx === undefined ? -1 : idx) });
+    if (h.length > HISTORY_MAX) h.shift();
+  }
+
+  /* Left arrow: "the one before".
+
+     Going back pops rather than pushes, so holding the key walks the trail
+     backwards instead of toggling between the last two sheep. Forward is
+     always something new - the way "previous track" behaves on a shuffled
+     playlist, where there is a past to revisit but no fixed future.
+
+     While the stream runs this is the same manoeuvre the right arrow makes,
+     with the target chosen rather than bred: hand stepStream the sheep to
+     morph into and it takes the usual transition path to it. */
+  function doSkipPrev() {
+    var h = app.history;
+    if (!h.length) { toast('No earlier sheep'); return; }
+    var s = app.stream;
+    if (s.active) {
+      if (!s.current || s.mode === 'trans') return;
+      var e = h.pop();
+      s.next = e.g;
+      s.legKind = 'hop';
+      if (e.idx >= 0) s.idx = e.idx;
+      s.driftLeft = driftGenerations();   // drift restarts from the sheep we land on
+      s.loopsLeft = 0;
+      renderPlaylist();
+      toast('Back to ' + e.g.name);
+      return;
+    }
+    setGenome(h.pop().g, { fit: false, history: false });
+    toast('Back to ' + app.genome.name);
+  }
+
   /* Right arrow: "next sheep, now".
 
      While the stream is running the morph is the whole point, so this must
@@ -3008,6 +3065,7 @@
         case 'c': app.renderer.clearAccum(); break;
         case 'e': exportPNG(); break;
         case 's': toggleStream(); break;
+        case 'arrowleft': e.preventDefault(); doSkipPrev(); break;
         case 'arrowright': e.preventDefault(); doSkipNext(); break;
         case 'v': e.preventDefault(); toggleFullscreen(); break;
         case 'u': toggleCinema(); break;
@@ -3095,6 +3153,7 @@
     bindTabs(); bindKeys(); bindCanvas(); bindViewfinder();
 
     $('btnPlay').onclick = togglePlay;
+    $('btnPrev').onclick = doSkipPrev;
     $('btnSkip').onclick = doSkipNext;
     $('btnRandom').onclick = doRandom;
     $('btnMutate').onclick = doMutate;
