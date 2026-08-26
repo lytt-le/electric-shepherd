@@ -4,7 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Electric Shepherd — local flame engine</title>
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=2">
+<!-- The ?v= on every asset below is a cache buster. index.html itself is
+     served no-cache, but the CSS and JS carry a long max-age, so without a
+     changing URL a CDN keeps handing out the old ones after a deploy - new
+     markup against stale styles, which looks like the UI has broken. Bump
+     every ?v= together when you deploy; see MAINTAINING.md. -->
 </head>
 <body>
 <div class="app">
@@ -12,24 +17,46 @@
   <header class="topbar">
     <div class="brand"><span class="mark">◈</span> Electric Shepherd<span class="sub">local flame engine</span></div>
     <div class="transport">
-      <button id="btnPlay" class="primary" title="Space">Pause</button>
-      <button id="btnRandom" title="R — brand new random sheep">Random</button>
-      <button id="btnMutate" title="M — mutate the current sheep">Mutate</button>
-      <button id="btnFit" title="F — auto-frame the flame">Fit</button>
-      <button id="btnKeep" title="K — save to the flock">Keep</button>
-      <button id="btnStream" title="S — start / stop the stream">Stream</button>
-      <button id="btnClearAcc" title="C — restart the exposure">Clear</button>
+      <button id="btnPlay" class="ib primary" title="Space — play / pause" aria-label="Pause">
+        <svg class="ico-pause" viewBox="0 0 24 24" aria-hidden="true"><rect class="solid" x="6" y="4" width="4" height="16" rx="1"/><rect class="solid" x="14" y="4" width="4" height="16" rx="1"/></svg>
+        <svg class="ico-play" viewBox="0 0 24 24" aria-hidden="true"><polygon class="solid" points="6 4 20 12 6 20"/></svg>
+      </button>
+      <button id="btnRandom" class="ib" title="R — brand new random sheep" aria-label="New random sheep">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+      </button>
+      <button id="btnMutate" class="ib" title="M — mutate the current sheep" aria-label="Mutate">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </button>
+      <button id="btnFit" class="ib" title="F — auto-frame the flame" aria-label="Auto-frame">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+      </button>
+      <button id="btnKeep" class="ib" title="K — save to the flock" aria-label="Keep">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+      </button>
+      <button id="btnStream" class="ib" title="S — start / stop the stream" aria-label="Start stream">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle class="solid" cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49"/><path d="M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14"/></svg>
+      </button>
+      <button id="btnClearAcc" class="ib" title="C — restart the exposure" aria-label="Clear the exposure">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+      </button>
       <select id="qualityPreset" title="Apply a quality preset tuned to your hardware">
-        <option value="" selected>Quality Presets</option>
-        <option value="light">Light — mobile / low-end</option>
-        <option value="medium">Medium — average computer</option>
-        <option value="high">High — discrete GPU</option>
-        <option value="extreme">Extreme — high performance PC</option>
+        <option value="" selected>Quality</option>
+        <option value="light">Light</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+        <option value="extreme">Extreme</option>
       </select>
-      <button id="btnFull" title="V — fullscreen viewfinder (U hides the panels without going fullscreen)">⛶</button>
-      <button id="btnHelp" title="? or F1 — the handbook">?</button>
+      <button id="btnOverlay" class="ib" title="H — show / hide the sheep details overlay" aria-label="Show sheep details">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      </button>
+      <button id="btnFull" class="ib" title="V — fullscreen viewfinder (U hides the panels without going fullscreen)" aria-label="Fullscreen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+      </button>
+      <button id="btnHelp" class="ib" title="? or F1 — the handbook" aria-label="Help">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </button>
     </div>
-    <button id="btnMenu" class="mobonly menubtn" title="Open the options drawer" aria-label="Options"><span class="mb-ico">☰</span><span class="mb-txt">Options</span></button>
+    <button id="btnMenu" class="mobonly menubtn" title="Open the options drawer" aria-label="Options"><svg class="mb-ico" viewBox="0 0 24 24" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg><span class="mb-txt">Options</span></button>
     <div class="spacer"></div>
     <div class="readout" id="readout"></div>
   </header>
@@ -90,17 +117,17 @@
   </div>
 </div>
 
-<script src="js/variations.js"></script>
-<script src="js/shaders.js"></script>
-<script src="js/palette.js"></script>
-<script src="js/genome.js"></script>
-<script src="js/renderer.js"></script>
-<script src="js/evolve.js"></script>
-<script src="js/library.js"></script>
-<script src="js/render.js"></script>
-<script src="js/ui.js"></script>
+<script src="js/variations.js?v=2"></script>
+<script src="js/shaders.js?v=2"></script>
+<script src="js/palette.js?v=2"></script>
+<script src="js/genome.js?v=2"></script>
+<script src="js/renderer.js?v=2"></script>
+<script src="js/evolve.js?v=2"></script>
+<script src="js/library.js?v=2"></script>
+<script src="js/render.js?v=2"></script>
+<script src="js/ui.js?v=2"></script>
 <!-- js/help.js mirrors README.md by hand: edit both together -->
-<script src="js/help.js"></script>
-<script src="js/main.js"></script>
+<script src="js/help.js?v=2"></script>
+<script src="js/main.js?v=2"></script>
 </body>
 </html>

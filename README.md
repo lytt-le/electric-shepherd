@@ -223,7 +223,7 @@ delete. Import `.sheep.json` / `.flock.json` files, or just drag them onto the w
 | `E` | render and save a PNG |
 | `V` | fullscreen viewfinder |
 | `U` | hide the panels without going fullscreen |
-| `H` | hide / show the overlay |
+| `H` | show / hide the sheep details overlay (off by default; also a button in the top bar) |
 | `?` / `F1` | open the in-app handbook |
 | `+` / `-` | zoom |
 
@@ -238,6 +238,10 @@ the slider itself works on a log scale. Values are clamped to the slider's range
 Double-click a slider's *label* to reset it where a default is defined.
 
 Drag the canvas to pan, scroll to zoom, shift-drag to rotate, double-click to auto-frame.
+
+The top bar is icons rather than words, so it fits a phone as readily as a desktop. Hover
+any of them for its name and shortcut; the order is play/pause, random, mutate, fit, keep,
+stream, clear, the quality preset, the details overlay, fullscreen and the handbook.
 
 ### On a phone or tablet
 

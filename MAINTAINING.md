@@ -20,6 +20,30 @@ heading. Two differences are deliberate:
 Adding a section? Add an entry to `SECTIONS` (id, title, kicker, html) and it appears
 in the sidebar and the filter box automatically — no other wiring.
 
+## Bump the cache buster when you deploy
+
+Every asset in `index.html` is loaded with a `?v=` on the end:
+
+```html
+<link rel="stylesheet" href="css/style.css?v=2">
+<script src="js/main.js?v=2"></script>
+```
+
+`index.html` is served `no-cache`, but the CSS and JS go out with a long
+`max-age`, so a CDN in front of the site will keep serving the old ones after a
+deploy. The result is new markup against a stale stylesheet — controls that
+should be hidden appear, widths blow out, and it reads as though the UI has
+broken, which is exactly what happened once already.
+
+**Bump every `?v=` together as part of deploying**, from the repo root:
+
+```sh
+sed -i 's/?v=[0-9]*/?v=3/g' index.html
+```
+
+The number is arbitrary — it only has to differ from last time. Purging the
+CDN cache by hand works too, but this survives forgetting.
+
 ## Names that must not be rebranded
 
 The app was renamed from *Electric Sheep* to *Electric Shepherd*, but these strings

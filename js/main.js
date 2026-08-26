@@ -9,13 +9,13 @@
 
   var DEFAULT_SETTINGS = {
     points: 256, passes: 14, ss: 2, resScale: 1, autoQuality: true,
-    decay: 0.93, targetFps: 50, fpsCap: 0, showOverlay: true,
+    decay: 0.93, targetFps: 50, fpsCap: 0, showOverlay: false,
     genNumXforms: 0, genMaxVars: 3, genTame: true, genFinalChance: 0.35,
     keepImage: true, imageLook: null,
     popSize: 9, mutStrength: 0.35, mutRate: 0.65, freshRate: 0.15,
     fitCoverage: 1.6, fitEntropy: 1.3, fitColour: 1.0, fitDetail: 1.5, fitContrast: 0.8,
     streamHold: 6, streamTrans: 5, streamShuffle: false,
-    loopsPerSheep: 3, driftMigrated: false,
+    loopsPerSheep: 3, driftMigrated: false, overlayMigrated: false,
     streamLoopOverride: false, streamLoopSecs: 12,
     endlessFresh: 1.0, endlessMutate: 0.5, endlessCross: 0.25, endlessFlock: 0.25,
     endlessMutateStrength: 0.45, endlessTries: 3, endlessMinScore: 0.42,
@@ -113,6 +113,25 @@
     if (b) b.classList.toggle('on', !!open);
   }
   function toggleDrawer() { setDrawer(!drawerOpen()); }
+
+  /* The sheep details overlay starts hidden and is toggled from the top bar
+     (or H, or the Sheep pane's checkbox). All three go through here so the
+     button, the checkbox and the canvas can never disagree. */
+  function setOverlay(on) {
+    app.settings.showOverlay = !!on;
+    saveSettings();
+    refreshOverlay();
+    syncOverlayBtn();
+    if (app.panels.sheep) app.panels.sheep.refresh();   // the checkbox lives in the Sheep pane
+  }
+  function toggleOverlay() { setOverlay(!app.settings.showOverlay); }
+  function syncOverlayBtn() {
+    var b = $('btnOverlay');
+    if (!b) return;
+    var on = !!app.settings.showOverlay;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-label', on ? 'Hide sheep details' : 'Show sheep details');
+  }
 
   /* The transport row is longer than a phone is wide, so it scrolls. Mark
      which ends still have buttons past them and let the CSS fade that edge -
@@ -378,11 +397,16 @@
     if (key === lastTransport) return;
     lastTransport = key;
     var p = $('btnPlay');
-    if (p) p.textContent = app.playing ? 'Pause' : 'Play';
+    if (p) {
+      // the buttons carry glyphs, not words: the state shows in which icon is
+      // drawn and in the .on highlight, and the label moves to the tooltip
+      p.classList.toggle('paused', !app.playing);
+      p.setAttribute('aria-label', app.playing ? 'Pause' : 'Play');
+    }
     var b = $('btnStream');
     if (b) {
-      b.textContent = app.stream.active ? 'Stop stream' : 'Stream';
       b.classList.toggle('on', app.stream.active);
+      b.setAttribute('aria-label', app.stream.active ? 'Stop the stream' : 'Start the stream');
     }
     syncTransportScroll();
   }
@@ -675,7 +699,7 @@
     U.check(p, gq, {
       label: 'Show overlay',
       get: function () { return app.settings.showOverlay; },
-      set: function (v) { app.settings.showOverlay = v; saveSettings(); refreshOverlay(); }
+      set: function (v) { setOverlay(v); }
     });
 
     var gj = U.group(root, 'Genome JSON', { collapsed: true });
@@ -2965,7 +2989,7 @@
         case 's': toggleStream(); break;
         case 'v': e.preventDefault(); toggleFullscreen(); break;
         case 'u': toggleCinema(); break;
-        case 'h': app.settings.showOverlay = !app.settings.showOverlay; saveSettings(); refreshOverlay(); break;
+        case 'h': toggleOverlay(); break;
         case '+': case '=':
           if (streamOwnsCamera()) { app.view.zoom = Math.min(20, app.view.zoom * 1.1); if (app.panels.sheep) app.panels.sheep.refresh(); }
           else { app.genome.camera.zoom *= 1.1; touch(true); }
@@ -3027,6 +3051,16 @@
       saveSettings();
     }
 
+    // Same shape as the streamDrift correction above. The details overlay
+    // used to default to on, so `true` is sitting in the saved settings of
+    // everyone who has ever run this, and a new default alone would never
+    // reach them. Clear it once; H or the top-bar button brings it back.
+    if (!app.settings.overlayMigrated) {
+      app.settings.showOverlay = false;
+      app.settings.overlayMigrated = true;
+      saveSettings();
+    }
+
     app.genome = GEN.randomGenome((Math.random() * 4294967296) >>> 0, genOpts());
     if (app.settings.keepImage && app.settings.imageLook) {
       app.genome.render = Object.assign(GEN.defaultRender(), app.settings.imageLook);
@@ -3044,6 +3078,7 @@
     $('btnFit').onclick = doFit;
     $('btnKeep').onclick = doKeep;
     $('btnStream').onclick = toggleStream;
+    $('btnOverlay').onclick = toggleOverlay;
     $('btnClearAcc').onclick = function () { app.renderer.clearAccum(); app.renderer.resetPoints(app.genome.seed || 1); };
     $('qualityPreset').onchange = function () {
       var v = this.value; this.value = '';
@@ -3077,6 +3112,7 @@
     });
 
     requestAnimationFrame(frame);
+    syncOverlayBtn();
     toast('Ready — press R for a new sheep');
 
     if (FIRST_LOAD) runFirstLoadBenchmark();
