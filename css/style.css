@@ -54,6 +54,7 @@ input[type=color]{padding:0;border:1px solid var(--line);height:24px;background:
 .brand .mark{color:var(--accent)}
 .brand .sub{color:var(--dim2);font-weight:400;font-size:11px;margin-left:6px}
 .transport{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.transport select{width:auto;padding:5px 8px;cursor:pointer}
 .spacer{flex:1}
 .readout{font:11px/1.4 var(--mono);color:var(--dim);white-space:nowrap;text-align:right}
 .readout b{color:var(--text);font-weight:600}
@@ -74,6 +75,18 @@ input[type=color]{padding:0;border:1px solid var(--line);height:24px;background:
 }
 .msg.show{opacity:1}
 .fatal{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:40px;text-align:center;color:var(--bad);background:#0a0b0f}
+
+/* ---------- first-load quality calibration ---------- */
+.loadscreen{
+  position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;
+  background:var(--bg);transition:opacity .4s ease;
+}
+.loadscreen.hide{opacity:0;pointer-events:none}
+.loadbox{display:flex;flex-direction:column;align-items:center;gap:14px;width:260px}
+.loadmark{font-size:32px;color:var(--accent)}
+.loadtext{font-size:12px;color:var(--dim);text-align:center}
+.loadbar{width:100%;height:3px;border-radius:2px;background:var(--line);overflow:hidden}
+.loadbar-fill{height:100%;width:0%;background:var(--accent);transition:width .3s linear}
 .overlay .strm{color:var(--accent2)}
 .overlay .vw{color:var(--accent)}
 
@@ -335,3 +348,244 @@ body.cinema .helpwrap{padding:16px}
   .helpnavbtn{white-space:nowrap}
   .hn-kick{display:none}
 }
+
+/* =========================================================================
+   MOBILE SHELL
+   -------------------------------------------------------------------------
+   Everything below hangs off body.mobile, which main.js sets once (coarse
+   pointer + a phone-or-tablet-sized viewport, or ?mobile=1). Nothing here
+   can reach the desktop layout, so the desktop UI is deliberately left
+   exactly as it was.
+
+   The shape: the top bar keeps every transport control it has on desktop,
+   in one horizontally scrollable row, and gains an Options button on the
+   right. Everything else - the side panel, the filmstrip, the readout - is
+   hidden until that button slides the panel in as a drawer (up from the
+   bottom in portrait, in from the right in landscape, where height is the
+   scarce axis). Controls inside are scaled to finger size.
+   ========================================================================= */
+
+.mobonly{display:none !important}
+body.mobile .mobonly{display:flex !important}
+
+body.mobile{font-size:14px}
+/* dvh, not vh: mobile browsers count the collapsing URL bar in vh and the
+   bottom of the app ends up hidden underneath it */
+body.mobile .app{height:100dvh}
+
+/* ---------- top bar: the only chrome visible by default ---------- */
+body.mobile .topbar{
+  gap:8px;padding:6px 8px;
+  padding-top:calc(6px + env(safe-area-inset-top));
+  padding-left:calc(8px + env(safe-area-inset-left));
+  padding-right:calc(8px + env(safe-area-inset-right));
+}
+body.mobile .brand{font-size:0;flex:0 0 auto}   /* the mark alone: the words cost a whole button of width */
+body.mobile .brand .mark{font-size:20px}
+body.mobile .brand .sub{display:none}
+body.mobile .spacer,
+body.mobile .readout{display:none}
+
+body.mobile .transport{
+  flex:1 1 auto;min-width:0;flex-wrap:nowrap;gap:8px;padding:2px 0;
+  overflow-x:auto;overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;
+  overscroll-behavior-x:contain;
+}
+body.mobile .transport::-webkit-scrollbar{display:none}
+/* the row is longer than any phone: fade the edge that still has buttons
+   past it, so it reads as scrollable. main.js sets .more-l / .more-r. */
+body.mobile .transport.more-r{
+  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent);
+  mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent);
+}
+body.mobile .transport.more-l{
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 26px);
+  mask-image:linear-gradient(90deg,transparent,#000 26px);
+}
+body.mobile .transport.more-l.more-r{
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 26px,#000 calc(100% - 26px),transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 26px,#000 calc(100% - 26px),transparent);
+}
+body.mobile .transport button,
+body.mobile .transport select{
+  flex:0 0 auto;min-height:44px;padding:0 16px;font-size:14px;border-radius:9px;
+}
+body.mobile .transport select{padding:0 10px}
+
+body.mobile .menubtn{
+  flex:0 0 auto;align-items:center;gap:7px;min-height:44px;padding:0 14px;
+  font-size:14px;border-radius:9px;border-color:var(--line2);
+}
+body.mobile .menubtn.on{background:#20303a;border-color:var(--accent2);color:var(--accent2)}
+.menubtn .mb-ico{font-size:16px;line-height:1}
+@media (orientation:portrait) and (max-width:520px){
+  body.mobile .menubtn .mb-txt{display:none}    /* narrow portrait: the glyph says enough */
+  body.mobile .menubtn{padding:0 15px}
+}
+
+/* ---------- stage ---------- */
+body.mobile .filmstrip{display:none}
+body.mobile .canvaswrap,
+body.mobile #glcanvas{touch-action:none}        /* gestures belong to the flame, not to page scroll */
+body.mobile .overlay{left:8px;top:8px;font-size:11px}
+body.mobile .overlay .title{font-size:13px}
+body.mobile .msg{
+  bottom:calc(14px + env(safe-area-inset-bottom));font-size:14px;
+  padding:9px 18px;max-width:86vw;text-align:center;
+}
+/* the button fades out when idle; on touch the first tap should bring it
+   back rather than exit, so make the faded state untappable */
+body.mobile.cinema.idle .exitcinema{pointer-events:none}
+body.mobile .exitcinema{
+  min-height:46px;padding:0 16px;font-size:15px;opacity:.55;
+  top:calc(12px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right));
+}
+
+/* ---------- the side panel, as a drawer ---------- */
+.drawerscrim{
+  position:fixed;inset:0;z-index:55;display:none;background:rgba(4,5,8,.6);
+  opacity:0;pointer-events:none;transition:opacity .22s ease;
+}
+body.mobile .drawerscrim{display:block}
+body.mobile.drawer-open .drawerscrim{opacity:1;pointer-events:auto}
+
+body.mobile .panel{
+  position:fixed;z-index:60;flex:none;
+  box-shadow:0 -12px 44px rgba(0,0,0,.65);
+  transition:transform .24s cubic-bezier(.22,.61,.36,1);
+  /* portrait: a bottom sheet */
+  left:0;right:0;bottom:0;top:auto;height:80dvh;
+  border-left:none;border-top:1px solid var(--line2);border-radius:16px 16px 0 0;
+  transform:translateY(101%);
+}
+body.mobile.drawer-open .panel{transform:translateY(0)}
+
+@media (orientation:landscape){
+  /* landscape: height is the scarce axis, so come in from the side instead */
+  body.mobile .panel{
+    left:auto;top:0;bottom:0;height:auto;width:min(440px,84vw);
+    border-radius:0;border-top:none;border-left:1px solid var(--line2);
+    box-shadow:-12px 0 44px rgba(0,0,0,.65);
+    transform:translateX(101%);
+    padding-right:env(safe-area-inset-right);
+  }
+  body.mobile.drawer-open .panel{transform:translateX(0)}
+}
+@media (prefers-reduced-motion:reduce){
+  body.mobile .panel,.drawerscrim{transition:none}
+}
+
+body.mobile .drawerhead{
+  position:relative;align-items:center;gap:10px;padding:12px 14px;flex:0 0 auto;
+  background:linear-gradient(180deg,#12151d,#0b0d12);border-bottom:1px solid var(--line);
+  border-radius:16px 16px 0 0;
+}
+.dh-grip{
+  position:absolute;left:50%;top:6px;transform:translateX(-50%);
+  width:38px;height:4px;border-radius:2px;background:var(--line2);
+}
+@media (orientation:landscape){
+  body.mobile .drawerhead{border-radius:0;padding-top:calc(12px + env(safe-area-inset-top))}
+  .dh-grip{display:none}
+}
+.dh-title{font-weight:600;letter-spacing:.4px;font-size:15px}
+.dh-close{
+  margin-left:auto;min-height:40px;min-width:46px;font-size:16px;
+  background:transparent;border-color:transparent;color:var(--dim);
+}
+.dh-close:hover{color:var(--text);background:var(--panel2)}
+
+/* ---------- controls, scaled to fingers ---------- */
+body.mobile .tabs{
+  flex-wrap:nowrap;gap:4px;padding:6px 8px 0;
+  overflow-x:auto;overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none;
+}
+body.mobile .tabs::-webkit-scrollbar{display:none}
+body.mobile .tabs button{
+  flex:0 0 auto;font-size:13.5px;padding:11px 14px;white-space:nowrap;min-height:0;
+}
+body.mobile .panes{
+  padding:12px 12px calc(64px + env(safe-area-inset-bottom));
+  overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+}
+
+body.mobile button{padding:10px 15px;font-size:14px;border-radius:8px;min-height:42px}
+/* the small in-context buttons keep their own scale, just a little bigger */
+body.mobile .tabs button,
+body.mobile .dh-close{min-height:0}
+body.mobile .libcell .acts button{padding:6px 10px;font-size:12px;min-height:36px}
+body.mobile .playlist li button{padding:6px 10px;font-size:12px;min-height:34px}
+body.mobile .stop button{padding:3px 8px;font-size:12px;min-height:26px}
+
+/* 16px keeps iOS from zooming the whole page when a field takes focus */
+body.mobile input[type=text],
+body.mobile input[type=number],
+body.mobile select,
+body.mobile textarea{font-size:16px;padding:9px 10px;min-height:42px;border-radius:8px}
+body.mobile textarea.json{height:180px;font-size:13px;min-height:0}
+body.mobile input[type=color]{height:40px}
+body.mobile .row input[type=checkbox]{width:24px !important;height:24px;flex:0 0 auto}
+
+body.mobile .group{margin-bottom:12px}
+body.mobile .group>h3{font-size:12px;padding:12px 14px}
+body.mobile .gbody{padding:10px 14px 12px}
+body.mobile .row{margin:11px 0;gap:10px}
+body.mobile .row>label{flex:0 0 112px;font-size:13.5px}
+body.mobile .row .val{
+  flex:0 0 82px;width:82px;font-size:15px;padding:7px 6px;min-height:38px;
+  border-color:var(--line);background:#0a0c11;
+}
+body.mobile .hint{font-size:12.5px;line-height:1.55}
+body.mobile .btnrow{gap:8px;margin:10px 0 2px}
+body.mobile .kv{font-size:12.5px}
+
+/* the native range track is too thin to hit, so rebuild it at thumb size */
+body.mobile .row input[type=range]{
+  -webkit-appearance:none;appearance:none;background:transparent;height:38px;margin:0;
+}
+body.mobile input[type=range]::-webkit-slider-runnable-track{
+  height:6px;border-radius:3px;background:#2b3341;border:1px solid var(--line);
+}
+body.mobile input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;
+  background:var(--accent);border:2px solid #12151d;margin-top:-11px;
+  box-shadow:0 1px 4px rgba(0,0,0,.6);
+}
+body.mobile input[type=range]::-moz-range-track{
+  height:6px;border-radius:3px;background:#2b3341;border:1px solid var(--line);
+}
+body.mobile input[type=range]::-moz-range-thumb{
+  width:24px;height:24px;border-radius:50%;background:var(--accent);border:2px solid #12151d;
+}
+
+/* dense grids stay dense, just reachable */
+body.mobile .affine-grid{gap:6px}
+body.mobile .affine-grid input{font-size:15px;padding:8px 2px;min-height:40px;text-align:center}
+body.mobile .xaos-grid input{font-size:13px;padding:6px 2px;min-height:34px;min-width:44px}
+body.mobile .xchip{padding:9px 12px;font-size:12.5px}
+body.mobile .varrow{padding:8px}
+body.mobile .stop input[type=color]{width:44px;height:30px}
+body.mobile .palbar{height:34px}
+body.mobile .playlist{max-height:none}
+body.mobile .playlist li{padding:8px;font-size:13px}
+
+/* ---------- handbook ---------- */
+body.mobile .helpwrap{padding:0}
+body.mobile .helpcard{
+  width:100%;height:100%;max-width:none;border-radius:0;border:none;
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);
+}
+body.mobile .helpcols{flex-direction:column}
+body.mobile .helpnav{
+  flex:0 0 auto;flex-direction:row;overflow-x:auto;overflow-y:hidden;gap:4px;
+  border-right:none;border-bottom:1px solid var(--line);
+}
+body.mobile .helpnavbtn{white-space:nowrap;padding:10px 13px;min-height:0}
+body.mobile .hn-kick{display:none}
+body.mobile .helpbody{padding:16px 16px 44px}
+body.mobile .helpsearch{max-width:150px;font-size:16px;min-height:38px}
+body.mobile .helpclose{min-height:40px;min-width:44px}
+body.mobile .helppane h2{font-size:18px}
+body.mobile .helppane p,body.mobile .helppane li{font-size:14px}

@@ -239,6 +239,22 @@ Double-click a slider's *label* to reset it where a default is defined.
 
 Drag the canvas to pan, scroll to zoom, shift-drag to rotate, double-click to auto-frame.
 
+### On a phone or tablet
+
+A touch device gets a shell of its own. The top bar keeps every transport button — it
+scrolls sideways when there are more than fit — and everything else starts hidden: no
+side panel, no filmstrip, no readout. The **☰ Options** button on the right slides the
+panel in as a drawer, up from the bottom in portrait and in from the side in landscape,
+with the controls sized for fingers. Tap the ✕, the dimmed area, or press `Esc` on a
+keyboard to put it away again.
+
+The canvas takes the gestures the mouse takes on a desktop: **one finger** drags to pan,
+**two fingers** pinch to zoom and twist to rotate, and a **double tap** auto-frames.
+
+The layout is chosen from a coarse pointer plus a phone-or-tablet-sized viewport, so a
+narrow desktop window keeps the desktop UI. Add `?mobile=1` to the URL to force the touch
+shell (or `?mobile=0` to force the desktop one) if you want to look at it on a big screen.
+
 ### Moving the camera while a stream is running
 
 A stream rewrites the genome every frame, so it owns the camera — a direct camera edit

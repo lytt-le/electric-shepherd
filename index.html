@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Electric Shepherd — local flame engine</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -19,9 +19,17 @@
       <button id="btnKeep" title="K — save to the flock">Keep</button>
       <button id="btnStream" title="S — start / stop the stream">Stream</button>
       <button id="btnClearAcc" title="C — restart the exposure">Clear</button>
+      <select id="qualityPreset" title="Apply a quality preset tuned to your hardware">
+        <option value="" selected>Quality Presets</option>
+        <option value="light">Light — mobile / low-end</option>
+        <option value="medium">Medium — average computer</option>
+        <option value="high">High — discrete GPU</option>
+        <option value="extreme">Extreme — high performance PC</option>
+      </select>
       <button id="btnFull" title="V — fullscreen viewfinder (U hides the panels without going fullscreen)">⛶</button>
       <button id="btnHelp" title="? or F1 — the handbook">?</button>
     </div>
+    <button id="btnMenu" class="mobonly menubtn" title="Open the options drawer" aria-label="Options"><span class="mb-ico">☰</span><span class="mb-txt">Options</span></button>
     <div class="spacer"></div>
     <div class="readout" id="readout"></div>
   </header>
@@ -37,7 +45,12 @@
       <div class="filmstrip" id="filmstrip"></div>
     </section>
 
-    <aside class="panel">
+    <aside class="panel" id="panel">
+      <div class="drawerhead mobonly">
+        <span class="dh-grip"></span>
+        <span class="dh-title">Options</span>
+        <button id="btnCloseDrawer" class="dh-close" title="Close" aria-label="Close options">✕</button>
+      </div>
       <nav class="tabs" id="tabs">
         <button data-tab="sheep" class="active">Sheep</button>
         <button data-tab="transforms">Transforms</button>
@@ -64,8 +77,18 @@
   </div>
 </div>
 
+<div class="drawerscrim" id="drawerScrim"></div>
+
 <input type="file" id="fileImport" accept=".json,application/json" multiple style="display:none">
 <canvas id="thumbcanvas" width="256" height="160" style="display:none"></canvas>
+
+<div class="loadscreen" id="loadScreen">
+  <div class="loadbox">
+    <div class="loadmark">◈</div>
+    <div class="loadtext" id="loadText">Calibrating render quality for your hardware&hellip;</div>
+    <div class="loadbar"><div class="loadbar-fill" id="loadBarFill"></div></div>
+  </div>
+</div>
 
 <script src="js/variations.js"></script>
 <script src="js/shaders.js"></script>

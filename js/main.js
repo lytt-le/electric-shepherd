@@ -28,6 +28,11 @@
     renderFormat: 'vp09.00.10.08', renderMbps: 24
   };
 
+  // No settings saved yet means nobody has ever picked a quality level here -
+  // worth a one-time benchmark. Once anything is saved (including the
+  // benchmark's own result) this stays false forever after.
+  var FIRST_LOAD = !LIB.hasSettings();
+
   var app = {
     genome: null,
     renderer: null,
@@ -67,6 +72,58 @@
     msgTimer = setTimeout(function () { m.classList.remove('show'); }, 1800);
   }
   function saveSettings() { LIB.saveSettings(app.settings); }
+
+  /* ---------------- mobile shell ---------------------------------------
+     Phones and tablets get a different shell around the same engine. The
+     top bar keeps every transport control it has on desktop, in one
+     scrollable row; everything else - the side panel, the filmstrip, the
+     readout - stays hidden until the Options button slides the panel in as
+     a drawer. Every rule for it hangs off body.mobile in css/style.css, so
+     the desktop layout is untouched.
+
+     Decided here rather than by a bare CSS media query on purpose: a
+     narrow desktop window should keep the desktop UI, so the test is a
+     coarse pointer *and* a phone-or-tablet-sized viewport. ?mobile=1 or
+     ?mobile=0 forces either shell, which is how you check the mobile
+     layout on a desktop browser. */
+  var MOBILE_MQ = '(pointer: coarse) and (max-width: 1024px), (pointer: coarse) and (max-height: 640px)';
+  function detectMobile() {
+    var f = /[?&]mobile=([01])/.exec(location.search);
+    if (f) return f[1] === '1';
+    try { return window.matchMedia(MOBILE_MQ).matches; } catch (e) { return false; }
+  }
+  function isMobile() { return document.body.classList.contains('mobile'); }
+  document.body.classList.toggle('mobile', detectMobile());
+
+  /* Re-tested on rotation: a tablet can be a phone-shaped viewport in
+     landscape and a desktop-shaped one in portrait. */
+  function syncMobileClass() {
+    var on = detectMobile();
+    if (on === isMobile()) return;
+    document.body.classList.toggle('mobile', on);
+    if (!on) setDrawer(false);
+    if (app.renderer) resize();
+  }
+
+  /* the options drawer - mobile only; on desktop the panel is always open */
+  function drawerOpen() { return document.body.classList.contains('drawer-open'); }
+  function setDrawer(open) {
+    document.body.classList.toggle('drawer-open', !!open);
+    var b = $('btnMenu');
+    if (b) b.classList.toggle('on', !!open);
+  }
+  function toggleDrawer() { setDrawer(!drawerOpen()); }
+
+  /* The transport row is longer than a phone is wide, so it scrolls. Mark
+     which ends still have buttons past them and let the CSS fade that edge -
+     without it there is nothing on screen to say the row goes on. */
+  function syncTransportScroll() {
+    var t = document.querySelector('.transport');
+    if (!t) return;
+    var slack = t.scrollWidth - t.clientWidth;
+    t.classList.toggle('more-l', slack > 2 && t.scrollLeft > 2);
+    t.classList.toggle('more-r', slack > 2 && t.scrollLeft < slack - 2);
+  }
 
   function viewActive() {
     var v = app.view;
@@ -239,6 +296,82 @@
     }
   }
 
+  /* ---------------- quality presets ---------------------------------- */
+  var QUALITY_PRESETS = {
+    light:   { label: 'Light',   points:  96, passes:  5, ss: 1, resScale: 0.5,  targetFps: 30, fpsCap: 30, de: false, denoise: 0 },
+    medium:  { label: 'Medium',  points: 224, passes: 10, ss: 1, resScale: 0.85, targetFps: 45, fpsCap: 60, de: true,  denoise: 0 },
+    high:    { label: 'High',    points: 384, passes: 20, ss: 2, resScale: 1.0,  targetFps: 60, fpsCap: 0,  de: true,  denoise: 1 },
+    extreme: { label: 'Extreme', points: 640, passes: 40, ss: 3, resScale: 1.25, targetFps: 60, fpsCap: 0,  de: true,  denoise: 2 }
+  };
+  function applyQualityPreset(key) {
+    var q = QUALITY_PRESETS[key];
+    if (!q) return;
+    app.settings.points = q.points;
+    app.settings.passes = q.passes;
+    app.settings.ss = q.ss;
+    app.settings.resScale = q.resScale;
+    app.settings.autoQuality = true;
+    app.settings.targetFps = q.targetFps;
+    app.settings.fpsCap = q.fpsCap;
+    saveSettings();
+    if (app.renderer) {
+      app.renderer.setPointCount(q.points);
+      app.renderer.clearAccum();
+    }
+    if (app.genome && app.genome.render) {
+      app.genome.render.de = q.de;
+      app.genome.render.denoise = q.denoise;
+      markLook();
+    }
+    resize();
+    refreshAll();
+    toast(q.label + ' quality preset applied');
+  }
+
+  /* ---------------- first-load quality calibration ---------------------
+     Rather than guess from GPU renderer strings or core counts - both easy
+     to misread, and unavailable on some browsers - this reuses the same
+     auto-quality loop adaptQuality() already runs during normal playback:
+     point it at a fixed, neutral baseline for a few seconds behind a
+     loading screen and see how many passes/frame the hardware actually
+     sustains, then apply whichever preset that's closest to. Runs once
+     ever - the moment it saves settings, hasSettings() is true and every
+     future load skips straight past this. */
+  var BENCH_MS = 3500;
+  function hideLoadScreen(instant) {
+    var el = $('loadScreen');
+    if (!el) return;
+    if (instant) { el.style.display = 'none'; return; }
+    el.classList.add('hide');
+    setTimeout(function () { el.style.display = 'none'; }, 420);
+  }
+  function runFirstLoadBenchmark() {
+    app.settings.points = 256;
+    app.settings.ss = 1;
+    app.settings.resScale = 1;
+    app.settings.passes = 16;
+    app.settings.autoQuality = true;
+    app.settings.targetFps = 60;
+    app.settings.fpsCap = 0;
+    app.renderer.setPointCount(256);
+    resize();
+
+    var fill = $('loadBarFill');
+    var t0 = performance.now();
+    (function tick() {
+      var u = Math.min(1, (performance.now() - t0) / BENCH_MS);
+      if (fill) fill.style.width = (u * 100) + '%';
+      if (u < 1) requestAnimationFrame(tick);
+    })();
+
+    setTimeout(function () {
+      var p = app.settings.passes;
+      var tier = p <= 8 ? 'light' : p <= 16 ? 'medium' : p <= 30 ? 'high' : 'extreme';
+      applyQualityPreset(tier);
+      hideLoadScreen();
+    }, BENCH_MS);
+  }
+
   var lastTransport = '';
   function syncTransport() {
     var key = (app.playing ? '1' : '0') + (app.stream.active ? '1' : '0');
@@ -251,6 +384,7 @@
       b.textContent = app.stream.active ? 'Stop stream' : 'Stream';
       b.classList.toggle('on', app.stream.active);
     }
+    syncTransportScroll();
   }
 
   function updateReadout() {
@@ -2613,6 +2747,7 @@
   }
   function setCinema(on) {
     document.body.classList.toggle('cinema', on);
+    if (on) setDrawer(false);        // nothing should sit over the viewfinder
     var b = $('btnFull');
     if (b) b.classList.toggle('on', on);
     pokeCursor();
@@ -2647,9 +2782,27 @@
     document.addEventListener('fullscreenchange', function () { setCinema(isFullscreen()); });
     document.addEventListener('webkitfullscreenchange', function () { setCinema(isFullscreen()); });
     window.addEventListener('mousemove', pokeCursor);
+    window.addEventListener('touchstart', pokeCursor, { passive: true });
     $('btnFull').onclick = toggleFullscreen;
     var bh = $('btnHelp');
     if (bh) bh.onclick = function () { if (window.FlameHelp) window.FlameHelp.toggle(); };
+    var bm = $('btnMenu');
+    if (bm) bm.onclick = toggleDrawer;
+    var bcd = $('btnCloseDrawer');
+    if (bcd) bcd.onclick = function () { setDrawer(false); };
+    var scr = $('drawerScrim');
+    if (scr) scr.onclick = function () { setDrawer(false); };
+    try {
+      var mq = window.matchMedia(MOBILE_MQ);
+      if (mq.addEventListener) mq.addEventListener('change', syncMobileClass);
+      else if (mq.addListener) mq.addListener(syncMobileClass);
+    } catch (e) { /* no matchMedia: the class set at load stands */ }
+    window.addEventListener('orientationchange', function () { setTimeout(syncMobileClass, 60); });
+
+    var trans = document.querySelector('.transport');
+    if (trans) trans.addEventListener('scroll', syncTransportScroll, { passive: true });
+    window.addEventListener('resize', syncTransportScroll);
+    syncTransportScroll();
     $('btnExitCinema').onclick = function () {
       if (isFullscreen()) toggleFullscreen(); else setCinema(false);
     };
@@ -2658,6 +2811,50 @@
   /* While the stream is running it rewrites the genome every frame, so the
      camera belongs to it; the user's adjustments go to the view offset. */
   function streamOwnsCamera() { return app.stream.active; }
+
+  /* ---------- camera nudges, shared by pointer and touch -------------------- */
+  function camPan(dx, dy) {
+    if (!app.genome || !app.renderer) return;
+    if (streamOwnsCamera()) {
+      app.view.panX += dx; app.view.panY += dy;
+      if (app.panels.sheep) app.panels.sheep.refresh();
+      refreshOverlay();
+      return;
+    }
+    var cam = app.genome.camera;
+    var minDim = Math.min(app.renderer.width, app.renderer.height) / (window.devicePixelRatio || 1);
+    var k = 2 / (minDim * cam.zoom) / app.settings.resScale;
+    var a = -(cam.rotate), ca = Math.cos(a), sa = Math.sin(a);
+    var wx = (-dx * k), wy = (dy * k);
+    cam.x += wx * ca - wy * sa;
+    cam.y += wx * sa + wy * ca;
+    touch(true);
+    if (app.panels.sheep) app.panels.sheep.refresh();
+  }
+  function camRotate(d) {
+    if (!app.genome) return;
+    if (streamOwnsCamera()) {
+      app.view.rot += d;
+      if (app.panels.sheep) app.panels.sheep.refresh();
+      refreshOverlay();
+      return;
+    }
+    app.genome.camera.rotate += d;
+    touch(true);
+    if (app.panels.sheep) app.panels.sheep.refresh();
+  }
+  function camZoom(f) {
+    if (!app.genome) return;
+    if (streamOwnsCamera()) {
+      app.view.zoom = Math.max(0.05, Math.min(20, app.view.zoom * f));
+      if (app.panels.sheep) app.panels.sheep.refresh();
+      refreshOverlay();
+      return;
+    }
+    app.genome.camera.zoom = Math.max(0.02, Math.min(60, app.genome.camera.zoom * f));
+    touch(true);
+    if (app.panels.sheep) app.panels.sheep.refresh();
+  }
 
   /* ---------- canvas interaction -------------------------------------------- */
   function bindCanvas() {
@@ -2672,42 +2869,76 @@
       if (!dragging || !app.genome) return;
       var dx = e.clientX - lx, dy = e.clientY - ly;
       lx = e.clientX; ly = e.clientY;
-      if (streamOwnsCamera()) {
-        if (mode === 'rotate') app.view.rot += dx * 0.005;
-        else { app.view.panX += dx; app.view.panY += dy; }
-        if (app.panels.sheep) app.panels.sheep.refresh();
-        refreshOverlay();
-        return;
-      }
-      var cam = app.genome.camera;
-      if (mode === 'rotate') {
-        cam.rotate += dx * 0.005;
-      } else {
-        var minDim = Math.min(app.renderer.width, app.renderer.height) / (window.devicePixelRatio || 1);
-        var k = 2 / (minDim * cam.zoom) / app.settings.resScale;
-        var a = -(cam.rotate), ca = Math.cos(a), sa = Math.sin(a);
-        var wx = (-dx * k), wy = (dy * k);
-        cam.x += wx * ca - wy * sa;
-        cam.y += wx * sa + wy * ca;
-      }
-      touch(true);
-      if (app.panels.sheep) app.panels.sheep.refresh();
+      if (mode === 'rotate') camRotate(dx * 0.005);
+      else camPan(dx, dy);
     });
     c.addEventListener('wheel', function (e) {
       if (!app.genome) return;
       e.preventDefault();
-      var f = Math.exp(-e.deltaY * 0.0015);
-      if (streamOwnsCamera()) {
-        app.view.zoom = Math.max(0.05, Math.min(20, app.view.zoom * f));
-        if (app.panels.sheep) app.panels.sheep.refresh();
-        refreshOverlay();
-        return;
-      }
-      app.genome.camera.zoom = Math.max(0.02, Math.min(60, app.genome.camera.zoom * f));
-      touch(true);
-      if (app.panels.sheep) app.panels.sheep.refresh();
+      camZoom(Math.exp(-e.deltaY * 0.0015));
     }, { passive: false });
     c.addEventListener('dblclick', function () { doFit(); });
+    bindTouch(c);
+  }
+
+  /* Touch equivalents of the three gestures above: one finger drags the
+     camera, two pinch to zoom and twist to rotate, a double tap re-frames.
+     Every handler calls preventDefault so the browser never turns a drag
+     into a page scroll, a pinch into a page zoom, or a tap into a
+     synthetic mouse drag that would then be handled twice. */
+  function bindTouch(c) {
+    var mode = 0;                 // 0 idle, 1 one finger, 2 two fingers
+    var px = 0, py = 0, pd = 0, pa = 0, travel = 0, lastTap = 0;
+
+    function midX(t) { return (t[0].clientX + t[1].clientX) / 2; }
+    function midY(t) { return (t[0].clientY + t[1].clientY) / 2; }
+    function spread(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
+    function twist(t) { return Math.atan2(t[1].clientY - t[0].clientY, t[1].clientX - t[0].clientX); }
+
+    c.addEventListener('touchstart', function (e) {
+      e.preventDefault();
+      pokeCursor();               // in cinema mode this brings the Exit button back
+      var t = e.touches;
+      if (t.length === 1) { mode = 1; px = t[0].clientX; py = t[0].clientY; travel = 0; }
+      else { mode = 2; px = midX(t); py = midY(t); pd = spread(t); pa = twist(t); }
+    }, { passive: false });
+
+    c.addEventListener('touchmove', function (e) {
+      e.preventDefault();
+      if (!app.genome) return;
+      var t = e.touches;
+      if (mode === 1 && t.length === 1) {
+        var dx = t[0].clientX - px, dy = t[0].clientY - py;
+        px = t[0].clientX; py = t[0].clientY;
+        travel += Math.abs(dx) + Math.abs(dy);
+        camPan(dx, dy);
+      } else if (mode === 2 && t.length > 1) {
+        var mx = midX(t), my = midY(t), d = spread(t), a = twist(t);
+        if (pd > 4 && d > 4) camZoom(d / pd);
+        var da = a - pa;
+        if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI;
+        if (Math.abs(da) > 0.01) camRotate(da);
+        camPan(mx - px, my - py);
+        px = mx; py = my; pd = d; pa = a;
+      }
+    }, { passive: false });
+
+    function end(e) {
+      var t = e.touches;
+      if (t.length === 0) {
+        if (mode === 1 && travel < 14) {          // a tap that went nowhere
+          var now = Date.now();
+          if (now - lastTap < 320) { doFit(); lastTap = 0; } else lastTap = now;
+        }
+        mode = 0;
+      } else if (t.length === 1) {
+        // one of two fingers lifted: keep panning with the other, but this
+        // is no longer a candidate tap
+        mode = 1; px = t[0].clientX; py = t[0].clientY; travel = 1e9;
+      }
+    }
+    c.addEventListener('touchend', end);
+    c.addEventListener('touchcancel', end);
   }
 
   function bindKeys() {
@@ -2722,6 +2953,7 @@
         if (e.key === 'Escape') { e.preventDefault(); H.close(); }
         return;
       }
+      if (e.key === 'Escape' && drawerOpen()) { e.preventDefault(); setDrawer(false); return; }
       switch (e.key.toLowerCase()) {
         case ' ': e.preventDefault(); togglePlay(); break;
         case 'r': doRandom(); break;
@@ -2772,9 +3004,12 @@
 
   /* ---------------- boot ---------------------------------------------------- */
   function boot() {
+    if (!FIRST_LOAD) hideLoadScreen(true);   // returning visitor: no delay
+
     var canvas = $('glcanvas');
     app.renderer = new window.FlameRenderer(canvas, { points: app.settings.points, ss: app.settings.ss, width: 800, height: 500 });
     if (!app.renderer.ok) {
+      hideLoadScreen(true);
       $('canvaswrap').appendChild(U.el('div', { class: 'fatal', text: app.renderer.error || 'Renderer failed to start.' }));
       return;
     }
@@ -2810,6 +3045,10 @@
     $('btnKeep').onclick = doKeep;
     $('btnStream').onclick = toggleStream;
     $('btnClearAcc').onclick = function () { app.renderer.clearAccum(); app.renderer.resetPoints(app.genome.seed || 1); };
+    $('qualityPreset').onchange = function () {
+      var v = this.value; this.value = '';
+      if (v) applyQualityPreset(v);
+    };
 
     $('fileImport').addEventListener('change', function () {
       LIB.readFiles(this.files, function (files) {
@@ -2839,6 +3078,8 @@
 
     requestAnimationFrame(frame);
     toast('Ready — press R for a new sheep');
+
+    if (FIRST_LOAD) runFirstLoadBenchmark();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
