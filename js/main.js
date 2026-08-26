@@ -2741,6 +2741,27 @@
     setGenome(applyLook(GEN.randomGenome(seed, genOpts())), { fit: true });
     toast('New sheep: ' + app.genome.name);
   }
+
+  /* Right arrow: "next sheep, now".
+
+     While the stream is running the morph is the whole point, so this must
+     not snap. It retires the current sheep's remaining loops and leaves the
+     rest to stepStream, which begins the transition on the next frame down
+     exactly the path it would have taken had the loops run out on their own -
+     same easing, same drift or hop leg, same rate cross-fade.
+
+     A press during a transition is ignored: the stream is already on its way
+     to the next sheep, and re-entering would jump the morph.
+
+     With the stream off there is no outgoing sheep to morph away from, so it
+     is simply a new random one. */
+  function doSkipNext() {
+    if (!app.stream.active) { doRandom(); return; }
+    var s = app.stream;
+    if (!s.current || s.mode === 'trans') return;
+    s.loopsLeft = 0;
+    toast('Next sheep');
+  }
   function doMutate() {
     var mix = app.settings.keepImage ? Object.assign({}, EVO.DEFAULT_MIX, { render: 0 }) : null;
     setGenome(EVO.mutate(app.genome, { strength: app.settings.mutStrength, mix: mix || undefined }), { fit: true });
@@ -2987,6 +3008,7 @@
         case 'c': app.renderer.clearAccum(); break;
         case 'e': exportPNG(); break;
         case 's': toggleStream(); break;
+        case 'arrowright': e.preventDefault(); doSkipNext(); break;
         case 'v': e.preventDefault(); toggleFullscreen(); break;
         case 'u': toggleCinema(); break;
         case 'h': toggleOverlay(); break;

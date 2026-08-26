@@ -216,6 +216,7 @@ delete. Import `.sheep.json` / `.flock.json` files, or just drag them onto the w
 | `Space` | play / pause |
 | `R` | new random sheep |
 | `M` | mutate the current sheep |
+| `→` | next sheep — while streaming it morphs across as usual; with the stream off it is a new random sheep |
 | `F` | auto-frame (resets the view offset; while streaming, resets it only) |
 | `K` | keep (save to the flock) |
 | `C` | clear the exposure and restart |

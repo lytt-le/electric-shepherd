@@ -208,6 +208,7 @@
         '<tr><td><kbd>Space</kbd></td><td>play / pause</td></tr>',
         '<tr><td><kbd>R</kbd></td><td>new random sheep</td></tr>',
         '<tr><td><kbd>M</kbd></td><td>mutate the current sheep</td></tr>',
+        '<tr><td><kbd>→</kbd></td><td>next sheep — while streaming it morphs across as usual; with the stream off it is a new random sheep</td></tr>',
         '<tr><td><kbd>F</kbd></td><td>auto-frame (resets the view offset; while streaming, resets it only)</td></tr>',
         '<tr><td><kbd>K</kbd></td><td>keep (save to the flock)</td></tr>',
         '<tr><td><kbd>C</kbd></td><td>clear the exposure and restart</td></tr>',
