@@ -170,6 +170,9 @@
   function saveSettings(obj) {
     try { return safeSet(SETTINGS_KEY, JSON.stringify(obj)); } catch (e) { return false; }
   }
+  // true once anything has ever been saved - lets the app tell a brand new
+  // visitor (worth calibrating quality for) from a returning one.
+  function hasSettings() { return safeGet(SETTINGS_KEY) != null; }
 
   global.FlameLibrary = {
     Library: Library,
@@ -178,6 +181,7 @@
     readFiles: readFiles,
     sanitise: sanitise,
     loadSettings: loadSettings,
-    saveSettings: saveSettings
+    saveSettings: saveSettings,
+    hasSettings: hasSettings
   };
 })(typeof window !== 'undefined' ? window : globalThis);
