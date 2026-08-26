@@ -3095,6 +3095,7 @@
     bindTabs(); bindKeys(); bindCanvas(); bindViewfinder();
 
     $('btnPlay').onclick = togglePlay;
+    $('btnSkip').onclick = doSkipNext;
     $('btnRandom').onclick = doRandom;
     $('btnMutate').onclick = doMutate;
     $('btnFit').onclick = doFit;
