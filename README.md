@@ -216,6 +216,8 @@ delete. Import `.sheep.json` / `.flock.json` files, or just drag them onto the w
 | `Space` | play / pause |
 | `R` | new random sheep |
 | `M` | mutate the current sheep |
+| `←` | previous sheep — walks back through the ones already seen; while streaming it morphs across as usual (also a button in the top bar) |
+| `→` | next sheep — while streaming it morphs across as usual; with the stream off it is a new random sheep (also a button in the top bar) |
 | `F` | auto-frame (resets the view offset; while streaming, resets it only) |
 | `K` | keep (save to the flock) |
 | `C` | clear the exposure and restart |
@@ -240,8 +242,9 @@ Double-click a slider's *label* to reset it where a default is defined.
 Drag the canvas to pan, scroll to zoom, shift-drag to rotate, double-click to auto-frame.
 
 The top bar is icons rather than words, so it fits a phone as readily as a desktop. Hover
-any of them for its name and shortcut; the order is play/pause, random, mutate, fit, keep,
-stream, clear, the quality preset, the details overlay, fullscreen and the handbook.
+any of them for its name and shortcut; the order is previous, play/pause, next,
+random, mutate, fit, keep, stream, clear, the quality preset, the details overlay,
+fullscreen and the handbook.
 
 ### On a phone or tablet
 
