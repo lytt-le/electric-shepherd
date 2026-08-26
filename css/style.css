@@ -54,6 +54,23 @@ input[type=color]{padding:0;border:1px solid var(--line);height:24px;background:
 .brand .mark{color:var(--accent)}
 .brand .sub{color:var(--dim2);font-weight:400;font-size:11px;margin-left:6px}
 .transport{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+
+/* Icon buttons. The top bar is all glyphs now, so the title attribute is the
+   only label a mouse user gets and the aria-label the only one a screen
+   reader gets - keep both on every one of them. Icons are inline SVG on a
+   24-unit grid drawn in currentColor, so they inherit the button's colour in
+   every state, the .primary gradient included. */
+.ib{display:inline-flex;align-items:center;justify-content:center;padding:5px 7px}
+.ib svg{
+  display:block;width:16px;height:16px;
+  fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
+}
+.ib svg .solid{fill:currentColor;stroke:none}
+/* play / pause is the one button whose glyph has to change; both live in the
+   markup and .paused picks which one shows */
+#btnPlay .ico-play{display:none}
+#btnPlay.paused .ico-pause{display:none}
+#btnPlay.paused .ico-play{display:block}
 .transport select{width:auto;padding:5px 8px;cursor:pointer}
 .spacer{flex:1}
 .readout{font:11px/1.4 var(--mono);color:var(--dim);white-space:nowrap;text-align:right}
@@ -411,6 +428,8 @@ body.mobile .transport button,
 body.mobile .transport select{
   flex:0 0 auto;min-height:44px;padding:0 16px;font-size:14px;border-radius:9px;
 }
+body.mobile .transport .ib{width:44px;padding:0}
+body.mobile .ib svg{width:20px;height:20px}
 body.mobile .transport select{padding:0 10px}
 
 body.mobile .menubtn{
@@ -418,7 +437,10 @@ body.mobile .menubtn{
   font-size:14px;border-radius:9px;border-color:var(--line2);
 }
 body.mobile .menubtn.on{background:#20303a;border-color:var(--accent2);color:var(--accent2)}
-.menubtn .mb-ico{font-size:16px;line-height:1}
+.menubtn .mb-ico{
+  display:block;width:18px;height:18px;flex:0 0 auto;
+  fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
+}
 @media (orientation:portrait) and (max-width:520px){
   body.mobile .menubtn .mb-txt{display:none}    /* narrow portrait: the glyph says enough */
   body.mobile .menubtn{padding:0 15px}
