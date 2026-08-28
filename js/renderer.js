@@ -15,6 +15,12 @@
   var GEN = global.FlameGenome;
   var VAR = global.FlameVariations;
 
+  /* Longest edge of the coarse density grid auto-framing reads back. The
+     bounding box it produces is a percentile of the total, so it is
+     scale-invariant -- 256 is far more resolution than the framing needs, and
+     it keeps the readback near 1MB instead of tens of megabytes. */
+  var FIT_MAX = 256;
+
   function compile(gl, type, src, label) {
     var sh = gl.createShader(type);
     gl.shaderSource(sh, src);
@@ -119,6 +125,7 @@
       this.progBlit = new Program(gl, S.VS_QUAD, S.FS_BLIT, 'blit');
       this.progFade = new Program(gl, S.VS_QUAD, S.FS_FADE, 'fade');
       this.progDenoise = new Program(gl, S.VS_QUAD, S.FS_DENOISE, 'denoise');
+      this.progReduce = new Program(gl, S.VS_QUAD, S.FS_REDUCE, 'reduce');
     } catch (e) { this.error = e.message; this.ok = false; return; }
 
     this.vao = gl.createVertexArray();
@@ -169,7 +176,11 @@
   FlameRenderer.prototype.resetPoints = function (seed) {
     var gl = this.gl;
     var n = this.pointsW * this.pointsH;
-    var buf = new Float32Array(n * 4);
+    // Reused across calls: this runs on every new sheep and twice per autoFit,
+    // and at the `extreme` preset's 640x640 particles it is a 6.3MB allocation
+    // each time. Only the particle count can invalidate it.
+    if (!this.seedBuf || this.seedBuf.length !== n * 4) this.seedBuf = new Float32Array(n * 4);
+    var buf = this.seedBuf;
     var r = new GEN.RNG(seed === undefined ? ((Math.random() * 4294967296) >>> 0) : seed);
     for (var i = 0; i < n; i++) {
       buf[i * 4] = r.range(-1, 1);
@@ -195,8 +206,8 @@
     var aw = w * ss, ah = h * ss;
     this.accumW = aw; this.accumH = ah;
     var self = this;
-    ['accumTex', 'tonedTex', 'tonedTexB', 'glowTexA', 'glowTexB'].forEach(function (k) { if (self[k]) gl.deleteTexture(self[k]); });
-    ['accumFBO', 'tonedFBO', 'tonedFBOB', 'glowFBOA', 'glowFBOB'].forEach(function (k) { if (self[k]) gl.deleteFramebuffer(self[k]); });
+    ['accumTex', 'tonedTex', 'tonedTexB', 'glowTexA', 'glowTexB', 'fitTex'].forEach(function (k) { if (self[k]) gl.deleteTexture(self[k]); });
+    ['accumFBO', 'tonedFBO', 'tonedFBOB', 'glowFBOA', 'glowFBOB', 'fitFBO'].forEach(function (k) { if (self[k]) gl.deleteFramebuffer(self[k]); });
     this.accumTex = makeTex(gl, aw, ah, this.accumFormat, gl.RGBA, this.accumType);
     this.accumFBO = makeFBO(gl, this.accumTex);
     this.tonedTex = makeTex(gl, w, h, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.LINEAR);
@@ -209,6 +220,13 @@
     this.glowFBOA = makeFBO(gl, this.glowTexA);
     this.glowTexB = makeTex(gl, this.glowW, this.glowH, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.LINEAR);
     this.glowFBOB = makeFBO(gl, this.glowTexB);
+    // Coarse density grid for auto-framing. Aspect follows the accumulation
+    // buffer so the framing maths is unchanged; only the sampling is coarser.
+    var fs = FIT_MAX / Math.max(aw, ah);
+    this.fitW = fs < 1 ? Math.max(1, Math.round(aw * fs)) : aw;
+    this.fitH = fs < 1 ? Math.max(1, Math.round(ah * fs)) : ah;
+    this.fitTex = makeTex(gl, this.fitW, this.fitH, gl.RGBA32F, gl.RGBA, gl.FLOAT);
+    this.fitFBO = makeFBO(gl, this.fitTex);
     if (this.canvas.width !== w) this.canvas.width = w;
     if (this.canvas.height !== h) this.canvas.height = h;
     this.clearAccum();
@@ -475,32 +493,43 @@
     return c;
   };
 
-  /* Read the accumulation buffer at reduced resolution (density only). */
-  function halfToFloat(h) {
-    var s = (h & 0x8000) >> 15, e = (h & 0x7C00) >> 10, f = h & 0x03FF;
-    if (e === 0) return (s ? -1 : 1) * Math.pow(2, -14) * (f / 1024);
-    if (e === 0x1F) return f ? NaN : ((s ? -1 : 1) * Infinity);
-    return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
-  }
+  /* Read the accumulation buffer at reduced resolution (density only).
 
-  FlameRenderer.prototype.readAccum = function () {
+     The reduce pass box-sums the accumulation buffer into `fitTex` first, so
+     what crosses the bus is at most FIT_MAX on its longest edge rather than the
+     whole supersampled buffer -- ~1MB instead of ~88MB at 1600x900 with ss:2.
+     The grid keeps the accumulation buffer's aspect ratio, and the returned
+     w/h are the grid's, so callers index the coarse map directly.
+
+     `fitTex` is RGBA32F whatever the accumulation format is, so this no longer
+     needs a half-float path on the way back either. */
+  FlameRenderer.prototype.readAccum = function (rect) {
     var gl = this.gl;
-    var w = this.accumW, h = this.accumH;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.accumFBO);
+    var w = this.fitW, h = this.fitH;
+    if (!this.fitFBO) return null;
+    var rx = rect ? rect.x : 0, ry = rect ? rect.y : 0;
+    var rw = rect ? rect.w : this.accumW, rh = rect ? rect.h : this.accumH;
     var buf;
     try {
-      if (this.accumType === gl.FLOAT) {
-        buf = new Float32Array(w * h * 4);
-        gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, buf);
-      } else {
-        var raw = new Uint16Array(w * h * 4);
-        gl.readPixels(0, 0, w, h, gl.RGBA, gl.HALF_FLOAT, raw);
-        buf = new Float32Array(w * h * 4);
-        for (var i = 0; i < raw.length; i++) buf[i] = halfToFloat(raw[i]);
-      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.fitFBO);
+      gl.viewport(0, 0, w, h);
+      gl.disable(gl.BLEND);
+      var pr = this.progReduce.use();
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.accumTex);
+      pr.set1i('uAccum', 0);
+      pr.set2i('uAccumSize', this.accumW, this.accumH);
+      pr.set2i('uSrcOrigin', rx, ry);
+      pr.set2i('uSrcSize', rw, rh);
+      pr.set2i('uOutSize', w, h);
+      gl.bindVertexArray(this.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+      if (!this.fitBuf || this.fitBuf.length !== w * h * 4) this.fitBuf = new Float32Array(w * h * 4);
+      buf = this.fitBuf;
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, buf);
     } catch (e) { gl.bindFramebuffer(gl.FRAMEBUFFER, null); return null; }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    return { data: buf, w: w, h: h };
+    return { data: buf, w: w, h: h, x: rx, y: ry, sw: rw, sh: rh };
   };
 
   /* ---- auto framing -------------------------------------------------
@@ -516,36 +545,101 @@
     this.resetPoints(g.seed || 1);
     this.mode = 'refine';
     this.step((opts.passes || 30) + 32);
-    var acc = this.readAccum();
-    if (!acc) { g.camera = savedCam; this.setGenome(g); return; }
-    var w = acc.w, h = acc.h, d = acc.data;
-    // total density and 99th-percentile bounding box
-    var total = 0, i;
-    for (i = 0; i < w * h; i++) total += d[i * 4 + 3];
-    if (total <= 0) { g.camera = savedCam; this.setGenome(g); return; }
-    var colSum = new Float32Array(w), rowSum = new Float32Array(h);
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        var v = d[(y * w + x) * 4 + 3];
-        colSum[x] += v; rowSum[y] += v;
+    var trim = opts.trim === undefined ? 0.004 : opts.trim;
+
+    /* Density bounding box, in accumulation-buffer pixel coordinates.
+
+       `readAccum` hands back a coarse grid rather than the whole buffer, so
+       this runs twice: once over the whole buffer to find roughly where the
+       flame is, then again over just that region to pin it down. The second
+       pass has the same number of cells covering a much smaller area, so the
+       box ends up at least as precise as reading the buffer at full size --
+       and two ~0.5MB readbacks cost a fraction of one 88MB one.
+
+       Both passes measure against the same absolute density cut, taken from
+       the survey, so the trim percentile keeps its original meaning instead of
+       being reapplied to an already-trimmed region. */
+    var self = this;
+    function boxOf(rect, cut) {
+      var acc = self.readAccum(rect);
+      if (!acc) return null;
+      var w = acc.w, h = acc.h, d = acc.data, i, x, y;
+      var total = 0;
+      for (i = 0; i < w * h; i++) total += d[i * 4 + 3];
+      if (total <= 0) return null;
+      var colSum = new Float32Array(w), rowSum = new Float32Array(h);
+      for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+          var v = d[(y * w + x) * 4 + 3];
+          colSum[x] += v; rowSum[y] += v;
+        }
       }
+      var c = cut === undefined ? total * trim : cut;
+      function bounds(arr, n) {
+        var a = 0, lo = 0, hi = n - 1, k;
+        for (k = 0; k < n; k++) { a += arr[k]; if (a > c) { lo = k; break; } }
+        a = 0;
+        for (k = n - 1; k >= 0; k--) { a += arr[k]; if (a > c) { hi = k; break; } }
+        return [lo, hi];
+      }
+      var bx = bounds(colSum, w), by = bounds(rowSum, h);
+      // cell index -> accumulation pixel coordinate of the cell's centre
+      var sx = acc.sw / w, sy = acc.sh / h;
+      return {
+        total: total,
+        x0: acc.x + (bx[0] + 0.5) * sx, x1: acc.x + (bx[1] + 0.5) * sx,
+        y0: acc.y + (by[0] + 0.5) * sy, y1: acc.y + (by[1] + 0.5) * sy,
+        cellW: sx, cellH: sy
+      };
     }
-    var cut = total * (opts.trim === undefined ? 0.004 : opts.trim);
-    function bounds(arr, n) {
-      var acc2 = 0, lo = 0, hi = n - 1, k;
-      for (k = 0; k < n; k++) { acc2 += arr[k]; if (acc2 > cut) { lo = k; break; } }
-      acc2 = 0;
-      for (k = n - 1; k >= 0; k--) { acc2 += arr[k]; if (acc2 > cut) { hi = k; break; } }
-      return [lo, hi];
+
+    var box = boxOf(null);
+    if (!box) { g.camera = savedCam; this.setGenome(g); return; }
+    var cut = box.total * trim;
+    /* Grow a span to at least `minLen`, keeping it inside [0, max].
+
+       The refine pass must never cover fewer accumulation pixels than it has
+       cells: below one pixel per cell the reduce clamps neighbouring cells onto
+       the same pixel, which duplicates that pixel's density and spreads the
+       percentile box across it. A one-pixel flame then reads as a one-cell-wide
+       smear and gets framed several times too loose. Holding the region at grid
+       size keeps it at exactly one pixel per cell, which is what reading the
+       buffer at full size did. */
+    function widen(lo, hi, minLen, max) {
+      if (minLen > max) return [0, max];
+      var grow = minLen - (hi - lo);
+      if (grow > 0) {
+        lo -= Math.floor(grow / 2);
+        hi = lo + minLen;
+      }
+      if (lo < 0) { hi -= lo; lo = 0; }
+      if (hi > max) { lo -= (hi - max); hi = max; }
+      return [Math.max(0, lo), Math.min(max, hi)];
     }
-    var bx = bounds(colSum, w), by = bounds(rowSum, h);
-    var minDim = Math.min(w, h);
+
+    // Refine, unless the survey already had one accum pixel per cell.
+    if (box.cellW > 1.001 || box.cellH > 1.001) {
+      // pad by a cell each side so a box sitting on a cell boundary is not clipped
+      var sx = widen(Math.floor(box.x0 - box.cellW), Math.ceil(box.x1 + box.cellW), this.fitW, this.accumW);
+      var sy = widen(Math.floor(box.y0 - box.cellH), Math.ceil(box.y1 + box.cellH), this.fitH, this.accumH);
+      var refined = (sx[1] > sx[0] && sy[1] > sy[0])
+        ? boxOf({ x: sx[0], y: sy[0], w: sx[1] - sx[0], h: sy[1] - sy[0] }, cut)
+        : null;
+      if (refined) box = refined;
+    }
+
+    /* Aspect comes from the accumulation buffer, not from the grid it was
+       reduced into. These two factors are what `w/minDim` and `h/minDim`
+       evaluated to when the code read the buffer at full size, so the framing
+       arithmetic below is unchanged. */
+    var aMin = Math.min(this.accumW, this.accumH);
+    var fx = this.accumW / aMin, fy = this.accumH / aMin;
     var zw = g.camera.zoom;
-    // pixel -> world
-    function px2wx(px) { return ((px + 0.5) / w * 2 - 1) * w / minDim / zw; }
-    function px2wy(py) { return ((py + 0.5) / h * 2 - 1) * h / minDim / zw; }
-    var x0 = px2wx(bx[0]), x1 = px2wx(bx[1]);
-    var y0 = px2wy(by[0]), y1 = px2wy(by[1]);
+    // accumulation pixel -> world
+    function px2wx(px) { return (px / self.accumW * 2 - 1) * fx / zw; }
+    function px2wy(py) { return (py / self.accumH * 2 - 1) * fy / zw; }
+    var x0 = px2wx(box.x0), x1 = px2wx(box.x1);
+    var y0 = px2wy(box.y0), y1 = px2wy(box.y1);
     var cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     var ex = Math.max(Math.abs(x1 - x0) / 2, 1e-4);
     var ey = Math.max(Math.abs(y1 - y0) / 2, 1e-4);
@@ -554,7 +648,7 @@
     var ca = Math.cos(-rot), sa = Math.sin(-rot);
     var wx = cx * ca - cy * sa, wy = cx * sa + cy * ca;
     var margin = opts.margin === undefined ? 1.12 : opts.margin;
-    var zoom = 1 / (Math.max(ex * (this.accumW / minDim), ey * (this.accumH / minDim)) * margin);
+    var zoom = 1 / (Math.max(ex * fx, ey * fy) * margin);
     g.camera.x = savedCam.x + wx;
     g.camera.y = savedCam.y + wy;
     g.camera.zoom = Math.max(0.02, Math.min(60, zoom));

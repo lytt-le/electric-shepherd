@@ -159,16 +159,36 @@
 
   var MAX_PARAMS = 6;
 
-  /* Generate the GLSL dispatch function for all variations. */
+  /* Generate the GLSL dispatch function for all variations.
+
+     r, theta and phi are hoisted into invocation-scope globals rather than
+     recomputed per call. Every variation of a transform acts on the SAME
+     affine-mapped point -- that is the flame algorithm, and applyXform passes
+     the same `q` on every iteration of its loop -- so computing them once per
+     transform instead of once per variation removes two atan() and a sqrt()
+     for each variation after the first. A transform with three variations was
+     doing six atan() where two will do, on the hottest path in the engine.
+
+     The contract: varPrepare(p) must be called before applyVariation with the
+     same p. applyXform is the only caller and does exactly that. The locals
+     below keep all 81 snippets working verbatim and cost nothing -- the
+     compiler renames them. */
   function buildGLSL() {
     var s = '';
+    s += 'float vR2, vR, vTheta, vPhi;\n';
+    s += 'void varPrepare(vec2 p){\n';
+    s += '  vR2 = dot(p,p);\n';
+    s += '  vR = sqrt(vR2);\n';
+    s += '  vTheta = atan(p.x, p.y);\n';
+    s += '  vPhi = atan(p.y, p.x);\n';
+    s += '}\n';
     s += 'vec2 applyVariation(int vid, vec2 p, float vw, vec4 aff1, vec2 aff2, float P0, float P1, float P2, float P3, float P4, float P5){\n';
     s += '  vec2 v = vec2(0.0);\n';
     s += '  float A=aff1.x, B=aff1.y, C=aff1.z, D=aff1.w, E=aff2.x, F=aff2.y;\n';
-    s += '  float r2 = dot(p,p);\n';
-    s += '  float r = sqrt(r2);\n';
-    s += '  float theta = atan(p.x, p.y);\n';
-    s += '  float phi = atan(p.y, p.x);\n';
+    s += '  float r2 = vR2;\n';
+    s += '  float r = vR;\n';
+    s += '  float theta = vTheta;\n';
+    s += '  float phi = vPhi;\n';
     s += '  switch(vid){\n';
     for (var i = 0; i < V.length; i++) {
       s += '  case ' + i + ': { ' + V[i].glsl + ' break; } // ' + V[i].name + '\n';

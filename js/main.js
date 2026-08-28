@@ -283,7 +283,7 @@
     app.fpsAvg += (fps - app.fpsAvg) * 0.06;
     if (app.playing) adaptQuality(dt);
     tickOverlay(dt);
-    updateReadout();
+    updateReadout(dt);
   }
 
   var adaptCooldown = 0;
@@ -416,9 +416,18 @@
     syncTransportScroll();
   }
 
-  function updateReadout() {
+  /* Throttled for the same reason as the overlay below: this reparses a string
+     into the DOM, and nobody reads an fps counter sixty times a second. */
+  var readoutClock = 0;
+  function updateReadout(dt) {
     var r = app.renderer;
     if (!r) return;
+    // called with a dt from the frame loop it throttles; called bare it refreshes now
+    if (dt !== undefined) {
+      readoutClock += dt;
+      if (readoutClock < 0.2) return;
+      readoutClock = 0;
+    }
     var spp = r.sampleCount / Math.max(1, r.width * r.height);
     $('readout').innerHTML =
       '<b>' + app.fpsAvg.toFixed(0) + '</b> fps &nbsp; ' +
