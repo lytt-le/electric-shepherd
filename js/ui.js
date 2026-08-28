@@ -142,7 +142,7 @@
     var inp = el('input', { type: 'checkbox' });
     inp.style.flex = '0 0 auto';
     inp.style.width = '14px';
-    inp.style.accentColor = '#ff8a3d';
+    inp.style.accentColor = 'var(--accent)';
     inp.addEventListener('change', function () { o.set(inp.checked); });
     row(parent, o.label, [inp, el('span', { class: 'hint', text: o.note || '', style: 'margin:0' })], o.title);
     var c = { el: inp, update: function () { inp.checked = !!o.get(); } };
