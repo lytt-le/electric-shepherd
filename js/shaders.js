@@ -39,6 +39,9 @@
     '  vec2 q = vec2(t0.x*p.x + t0.y*p.y + t0.z, t0.w*p.x + t1.x*p.y + t1.y);',
     '  vec2 acc = vec2(0.0);',
     '  int nv = int(t4.x);',
+    // every variation below acts on this same q, so r/theta/phi are computed
+    // once here rather than once per variation inside applyVariation
+    '  varPrepare(q);',
     '  for(int k=0;k<MAXV;k++){',
     '    if(k>=nv) break;',
     '    vec4 va = xf(row, 5 + k*2);',
@@ -385,6 +388,51 @@
     'void main(){ outColor = vec4(0.0); }'
   ].join('\n');
 
+  // ---- accumulation reduce -----------------------------------------
+  // Box-sums the accumulation buffer down to a small grid so auto-framing can
+  // read a density map back without dragging the whole supersampled buffer
+  // across the bus -- that is ~88MB at 1600x900 with ss:2, and the framing only
+  // needs a percentile bounding box, which is scale-invariant.
+  //
+  // Each output texel sums the half-open accum region it covers, so the block
+  // edges tile exactly with no gaps or double-counting whatever the ratio.
+  // Output is RGBA32F regardless of the accumulation format, which also keeps
+  // the readback off the 16-bit path.
+  //
+  // The grid covers the source rectangle [uSrcOrigin, uSrcOrigin + uSrcSize),
+  // not necessarily the whole buffer. That is what lets auto-framing run
+  // coarse-to-fine: survey the whole buffer, then re-reduce just the region the
+  // flame landed in, at the same grid size but a much finer effective scale.
+  // Without the second pass a small, densely-framed flame is localised only to
+  // the nearest coarse cell, which after the zoom-in is a visible misframing.
+  var FS_REDUCE = [
+    '#version 300 es',
+    'precision highp float;',
+    'precision highp int;',
+    'in vec2 vUV;',
+    'uniform sampler2D uAccum;',
+    'uniform ivec2 uAccumSize;',
+    'uniform ivec2 uSrcOrigin;',
+    'uniform ivec2 uSrcSize;',
+    'uniform ivec2 uOutSize;',
+    'out vec4 outColor;',
+    'void main(){',
+    '  ivec2 o = clamp(ivec2(vUV * vec2(uOutSize)), ivec2(0), uOutSize - 1);',
+    '  ivec2 lo = uSrcOrigin + (o * uSrcSize) / uOutSize;',
+    '  ivec2 hi = uSrcOrigin + ((o + 1) * uSrcSize) / uOutSize;',
+    '  hi = max(hi, lo + 1);',
+    '  lo = clamp(lo, ivec2(0), uAccumSize - 1);',
+    '  hi = clamp(hi, ivec2(0), uAccumSize);',
+    '  vec4 s = vec4(0.0);',
+    '  for(int y = lo.y; y < hi.y; y++){',
+    '    for(int x = lo.x; x < hi.x; x++){',
+    '      s += texelFetch(uAccum, ivec2(x, y), 0);',
+    '    }',
+    '  }',
+    '  outColor = s;',
+    '}'
+  ].join('\n');
+
   // ---- simple textured blit ----------------------------------------
   var FS_BLIT = [
     '#version 300 es',
@@ -408,6 +456,7 @@
     FS_COMPOSITE: FS_COMPOSITE,
     FS_DENOISE: FS_DENOISE,
     FS_FADE: FS_FADE,
+    FS_REDUCE: FS_REDUCE,
     FS_BLIT: FS_BLIT
   };
 })(typeof window !== 'undefined' ? window : globalThis);
