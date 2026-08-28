@@ -60,6 +60,13 @@
     var t = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, format, type, null);
+    // A 32-bit float internal format is only filterable with OES_texture_float_linear,
+    // which Apple GPUs do not expose. Asking for LINEAR without it leaves the texture
+    // incomplete, and an incomplete texture samples as opaque black without raising an
+    // error - so the flame renders perfectly and invisibly. Downgrade instead.
+    if (filter === gl.LINEAR
+        && (internalFormat === gl.RGBA32F || internalFormat === gl.RG32F || internalFormat === gl.R32F)
+        && !gl.getExtension('OES_texture_float_linear')) filter = gl.NEAREST;
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter || gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter || gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -119,7 +126,10 @@
     // genome data textures
     this.texXform = makeTex(gl, GEN.XTEX_W, GEN.MAX_XFORMS + 1, gl.RGBA32F, gl.RGBA, gl.FLOAT);
     this.texXaos = makeTex(gl, GEN.MAX_XFORMS, GEN.MAX_XFORMS, gl.R32F, gl.RED, gl.FLOAT);
-    this.texPalette = makeTex(gl, 256, 1, gl.RGBA32F, gl.RGBA, gl.FLOAT, gl.LINEAR);
+    // 16F, not 32F: the palette is the one data texture that is filtered, and RGBA16F
+    // is filterable in core WebGL2 everywhere. It takes the same Float32Array upload
+    // unchanged, and 256 colour stops have precision to spare.
+    this.texPalette = makeTex(gl, 256, 1, gl.RGBA16F, gl.RGBA, gl.FLOAT, gl.LINEAR);
 
     this.pointsW = 0; this.pointsH = 0;
     this.width = 0; this.height = 0; this.ss = 1;

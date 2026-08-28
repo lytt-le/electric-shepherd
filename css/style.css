@@ -91,11 +91,15 @@ input[type=color]{padding:0;border:1px solid var(--line);height:24px;background:
   padding:6px 14px;font-size:12px;opacity:0;transition:opacity .25s;pointer-events:none;
 }
 .msg.show{opacity:1}
-.fatal{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:40px;text-align:center;color:var(--bad);background:#0a0b0f}
+/* Longhand offsets, not `inset`: the shorthand is Safari 14.1+, and this is the
+   notice shown when the renderer will not start - on the very browsers most
+   likely to show it, `inset` is dropped, the box collapses to nothing and the
+   explanation reads as a blank screen. */
+.fatal{position:absolute;top:0;right:0;bottom:0;left:0;display:flex;align-items:center;justify-content:center;padding:40px;text-align:center;color:var(--bad);background:#0a0b0f}
 
 /* ---------- first-load quality calibration ---------- */
 .loadscreen{
-  position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;
+  position:fixed;top:0;right:0;bottom:0;left:0;z-index:999;display:flex;align-items:center;justify-content:center;
   background:var(--bg);transition:opacity .4s ease;
 }
 .loadscreen.hide{opacity:0;pointer-events:none}
@@ -203,7 +207,7 @@ body.cinema.idle .exitcinema{opacity:0}
 .gallery{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
 .gallery .cell{position:relative;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#000;cursor:pointer;aspect-ratio:16/10}
 .gallery .cell img{width:100%;height:100%;display:block;object-fit:cover}
-.gallery .cell .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim2);font-size:10px}
+.gallery .cell .ph{position:absolute;top:0;right:0;bottom:0;left:0;display:flex;align-items:center;justify-content:center;color:var(--dim2);font-size:10px}
 .gallery .cell.sel{border-color:var(--accent2);box-shadow:0 0 0 1px var(--accent2)}
 .gallery .cell .score{
   position:absolute;left:0;bottom:0;right:0;padding:1px 4px;font:10px var(--mono);
@@ -260,7 +264,7 @@ button.toggle.on{background:#20303a;border-color:var(--accent2);color:var(--acce
    Paired with js/help.js. If you restyle this, keep the two panes (nav +
    body) scrolling independently — the handbook is long. */
 .helpwrap{
-  position:fixed;inset:0;z-index:80;display:none;
+  position:fixed;top:0;right:0;bottom:0;left:0;z-index:80;display:none;
   align-items:center;justify-content:center;padding:28px;
   background:rgba(4,5,8,.82);backdrop-filter:blur(2px);  /* the live canvas is still drawing behind: keep this cheap */
 }
@@ -466,7 +470,7 @@ body.mobile .exitcinema{
 
 /* ---------- the side panel, as a drawer ---------- */
 .drawerscrim{
-  position:fixed;inset:0;z-index:55;display:none;background:rgba(4,5,8,.6);
+  position:fixed;top:0;right:0;bottom:0;left:0;z-index:55;display:none;background:rgba(4,5,8,.6);
   opacity:0;pointer-events:none;transition:opacity .22s ease;
 }
 body.mobile .drawerscrim{display:block}

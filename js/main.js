@@ -3111,13 +3111,24 @@
     if (!FIRST_LOAD) hideLoadScreen(true);   // returning visitor: no delay
 
     var canvas = $('glcanvas');
-    app.renderer = new window.FlameRenderer(canvas, { points: app.settings.points, ss: app.settings.ss, width: 800, height: 500 });
+    // The constructor reports most trouble through .ok/.error, but framebuffer
+    // completeness is checked by a throw. Uncaught, that escapes boot() and leaves a
+    // blank page with no explanation - exactly the failure the notice exists to avoid.
+    try {
+      app.renderer = new window.FlameRenderer(canvas, { points: app.settings.points, ss: app.settings.ss, width: 800, height: 500 });
+    } catch (e) {
+      app.renderer = { ok: false, error: (e && e.message) || String(e) };
+    }
     if (!app.renderer.ok) {
       hideLoadScreen(true);
       $('canvaswrap').appendChild(U.el('div', { class: 'fatal', text: app.renderer.error || 'Renderer failed to start.' }));
       return;
     }
-    app.thumb = new window.FlameRenderer($('thumbcanvas'), { points: 128, ss: 1, width: 256, height: 160 });
+    // The thumbnail renderer is a convenience and every call site already checks it,
+    // so it is allowed to fail without taking the app down.
+    try {
+      app.thumb = new window.FlameRenderer($('thumbcanvas'), { points: 128, ss: 1, width: 256, height: 160 });
+    } catch (e) { app.thumb = null; }
 
     // One-time correction. An earlier build shipped `streamDrift` defaulted to
     // 3, so it was written into saved settings for people who never chose it,
