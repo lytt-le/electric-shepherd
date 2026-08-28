@@ -70,7 +70,7 @@ input[type=checkbox]{accent-color:var(--accent)}
 .app{display:flex;flex-direction:column;height:100vh}
 .topbar{
   display:flex;align-items:center;gap:14px;padding:10px 14px;
-  background:var(--panel);border-bottom:1px solid var(--line);
+  background:var(--panel);
   flex:0 0 auto;
 }
 .brand{font-weight:600;letter-spacing:.4px;white-space:nowrap}
@@ -165,7 +165,7 @@ body.cinema.idle .exitcinema{opacity:0}
 /* ---------- side panel ---------- */
 .panel{
   flex:0 0 352px;display:flex;flex-direction:column;background:var(--panel);
-  border-left:1px solid var(--line);min-height:0;
+  min-height:0;
 }
 .tabs{display:flex;flex-wrap:wrap;gap:2px;padding:8px 8px 0;border-bottom:1px solid var(--line);background:var(--panel)}
 .tabs button{
