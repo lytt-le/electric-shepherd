@@ -338,7 +338,16 @@
         'view is restored exactly as it was.</p>',
         '<p class="hnote">If a stage goes quiet for more than about twenty-five seconds the status says so',
         'rather than leaving you guessing. AV1 in particular is slow enough that this is normal rather than a',
-        'fault.</p>'
+        'fault.</p>',
+        '<h3>Export still</h3>',
+        '<p>One frame of the sheep as it stands, at a deep exposure, saved as a PNG. <b>Resolution</b> is either',
+        '<em>Match view</em> — the shape of the window multiplied by <em>Scale</em> — or an exact size, from the',
+        'presets or typed in. <b>Quality passes</b> is the exposure depth; it goes far past anything the live',
+        'view could manage, because the view is simply frozen until it finishes.</p>',
+        '<p>Asking for a frame shaped differently to the window does not stretch the picture. The sheep is drawn',
+        'at the same scale on both axes whatever the shape of the frame, so the shorter edge always shows the',
+        'same slice of the flame and the longer edge shows more of it: a wide frame gains room at the sides',
+        'rather than a fatter sheep.</p>'
       ].join('\n')
     },
     {

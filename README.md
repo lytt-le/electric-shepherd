@@ -375,6 +375,19 @@ If a stage does go quiet for more than about twenty-five seconds the status says
 rather than leaving you guessing. AV1 in particular is slow enough that this is normal
 rather than a fault.
 
+### Export still
+
+One frame of the sheep as it stands, at a deep exposure, saved as a PNG. **Resolution**
+is either *Match view* — the window's own shape multiplied by *Scale* — or an exact size,
+picked from the presets or typed in. **Quality passes** is the exposure depth, and it
+goes far past anything the live view could manage, because the view is simply frozen
+until it finishes.
+
+Asking for a frame shaped differently to the window does not stretch the picture. The
+sheep is drawn at the same scale on both axes whatever the shape of the frame, so the
+shorter edge always shows the same slice of the flame and the longer edge shows more of
+it: a wide frame gains room at the sides rather than a fatter sheep.
+
 ## The exposure
 
 The accumulation buffer is the whole trick, and it is used one of two ways depending on
