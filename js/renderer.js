@@ -643,14 +643,28 @@
     var cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     var ex = Math.max(Math.abs(x1 - x0) / 2, 1e-4);
     var ey = Math.max(Math.abs(y1 - y0) / 2, 1e-4);
-    // undo the view rotation to get world-space centre
-    var rot = -(savedCam.rotate || 0);
-    var ca = Math.cos(-rot), sa = Math.sin(-rot);
+
+    /* Undo the rotation the splat applied to get back to world space. The
+       survey was drawn with uRot = -(camera.rotate + spinAngle), so the
+       inverse has to carry the spin as well: leaving it out rotates the
+       measured centre by however far the camera has spun, which throws the
+       new centre off in a direction that changes as the sheep turns. */
+    var rot = (savedCam.rotate || 0) + this.spinAngle;
+    var ca = Math.cos(rot), sa = Math.sin(rot);
     var wx = cx * ca - cy * sa, wy = cx * sa + cy * ca;
+
+    /* ndc = screen-space offset * zoom / f, so the flame fits when
+       zoom <= fx/ex and zoom <= fy/ey. `margin` then backs off a little. */
     var margin = opts.margin === undefined ? 1.12 : opts.margin;
-    var zoom = 1 / (Math.max(ex * fx, ey * fy) * margin);
-    g.camera.x = savedCam.x + wx;
-    g.camera.y = savedCam.y + wy;
+    var zoom = 1 / (Math.max(ex / fx, ey / fy) * margin);
+
+    /* An absolute position, not an adjustment: the survey put the camera at
+       the origin, so (wx, wy) is already where the flame's centre sits in the
+       world. Adding the old camera offset to it moved the frame by that
+       offset every single time, which is why fitting an already-fitted sheep
+       used to walk the view further away with each press. */
+    g.camera.x = wx;
+    g.camera.y = wy;
     g.camera.zoom = Math.max(0.02, Math.min(60, zoom));
     g.camera.rotate = savedCam.rotate;
     g.camera.spin = savedCam.spin;
