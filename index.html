@@ -4,29 +4,64 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Electric Shepherd — local flame engine</title>
-<link rel="stylesheet" href="css/style.css?v=4">
-<!-- The ?v=4 on every asset below is a cache buster. index.html itself is
+<link rel="stylesheet" href="css/style.css?v=5">
+<!-- The ?v=5 on every asset below is a cache buster. index.html itself is
      served no-cache, but the CSS and JS carry a long max-age, so without a
      changing URL a CDN keeps handing out the old ones after a deploy - new
      markup against stale styles, which looks like the UI has broken. Bump
-     every ?v=4 together when you deploy; see MAINTAINING.md. -->
+     every ?v=5 together when you deploy; see MAINTAINING.md. -->
 </head>
+<!-- The shell is a Windows 98 application window: title bar, menu bar,
+     toolbar, client area, status bar, sitting on a desktop with a taskbar.
+     Everything below the toolbar is the same app it always was - only the
+     chrome around it changed. js/win98.js drives the menus, the Start menu
+     and the clock; it does nothing the keyboard and the toolbar cannot
+     already do, it only offers them a second way in. -->
 <body>
 <div class="app">
 
-  <header class="topbar">
-    <div class="brand"><span class="mark">◈</span> Electric Shepherd<span class="sub">local flame engine</span></div>
+  <!-- ---------- title bar ---------- -->
+  <div class="titlebar">
+    <span class="tb-icon" aria-hidden="true">
+      <svg viewBox="0 0 16 16" width="16" height="16">
+        <rect x="0" y="0" width="16" height="16" fill="#000080"/>
+        <path d="M8 2 L13 8 L8 14 L3 8 Z" fill="#ff8000"/>
+        <path d="M8 5 L11 8 L8 11 L5 8 Z" fill="#ffff00"/>
+      </svg>
+    </span>
+    <span class="tb-text">Electric Shepherd — local flame engine</span>
+    <div class="tb-btns">
+      <button id="btnWinMin" class="tb-btn" title="U — hide the panels" aria-label="Minimize">
+        <svg viewBox="0 0 10 9" aria-hidden="true"><rect x="1" y="6" width="6" height="2"/></svg>
+      </button>
+      <button id="btnWinMax" class="tb-btn" title="V — fullscreen" aria-label="Maximize">
+        <svg viewBox="0 0 10 9" aria-hidden="true"><path d="M1 1h8v7H1z" fill="none" stroke="currentColor" stroke-width="1"/><rect x="1" y="1" width="8" height="2"/></svg>
+      </button>
+      <button id="btnWinClose" class="tb-btn tb-close" title="Close" aria-label="Close">
+        <svg viewBox="0 0 10 9" aria-hidden="true"><path d="M1 1l7 7M8 1l-7 7" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ---------- menu bar ----------
+       Every item here dispatches an existing toolbar button or keyboard
+       shortcut; win98.js builds the drop-downs from the MENUS table. -->
+  <div class="menubar" id="menubar" role="menubar"></div>
+
+  <!-- ---------- toolbar ---------- -->
+  <div class="toolbar">
     <div class="transport">
       <button id="btnPrev" class="ib" title="← — back to the sheep before this one" aria-label="Previous sheep">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><polygon class="solid" points="19 4 9 12 19 20"/><rect class="solid" x="4.6" y="4" width="2.4" height="16" rx="1"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><polygon class="solid" points="19 4 9 12 19 20"/><rect class="solid" x="4.6" y="4" width="2.4" height="16"/></svg>
       </button>
       <button id="btnPlay" class="ib primary" title="Space — play / pause" aria-label="Pause">
-        <svg class="ico-pause" viewBox="0 0 24 24" aria-hidden="true"><rect class="solid" x="6" y="4" width="4" height="16" rx="1"/><rect class="solid" x="14" y="4" width="4" height="16" rx="1"/></svg>
+        <svg class="ico-pause" viewBox="0 0 24 24" aria-hidden="true"><rect class="solid" x="6" y="4" width="4" height="16"/><rect class="solid" x="14" y="4" width="4" height="16"/></svg>
         <svg class="ico-play" viewBox="0 0 24 24" aria-hidden="true"><polygon class="solid" points="6 4 20 12 6 20"/></svg>
       </button>
       <button id="btnSkip" class="ib" title="→ — next sheep (a new random one when the stream is off)" aria-label="Next sheep">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><polygon class="solid" points="5 4 15 12 5 20"/><rect class="solid" x="17" y="4" width="2.4" height="16" rx="1"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><polygon class="solid" points="5 4 15 12 5 20"/><rect class="solid" x="17" y="4" width="2.4" height="16"/></svg>
       </button>
+      <span class="tsep" aria-hidden="true"></span>
       <button id="btnRandom" class="ib" title="R — brand new random sheep" aria-label="New random sheep">
         <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
       </button>
@@ -34,17 +69,19 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
       </button>
       <button id="btnFit" class="ib" title="F — auto-frame the flame" aria-label="Auto-frame">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v5H3"/><path d="M21 8h-5V3"/><path d="M16 21v-5h5"/><path d="M3 16h5v5"/></svg>
       </button>
       <button id="btnKeep" class="ib" title="K — save to the flock" aria-label="Keep">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V3h14z"/></svg>
       </button>
+      <span class="tsep" aria-hidden="true"></span>
       <button id="btnStream" class="ib" title="S — start / stop the stream" aria-label="Start stream">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle class="solid" cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49"/><path d="M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14"/></svg>
       </button>
       <button id="btnClearAcc" class="ib" title="C — restart the exposure" aria-label="Clear the exposure">
         <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
       </button>
+      <span class="tsep" aria-hidden="true"></span>
       <select id="qualityPreset" title="Apply a quality preset tuned to your hardware">
         <option value="" selected>Quality</option>
         <option value="light">Light</option>
@@ -52,27 +89,27 @@
         <option value="high">High</option>
         <option value="extreme">Extreme</option>
       </select>
+      <span class="tsep" aria-hidden="true"></span>
       <button id="btnOverlay" class="ib" title="H — show / hide the sheep details overlay" aria-label="Show sheep details">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="17" x2="12" y2="11"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
       </button>
       <button id="btnFull" class="ib" title="V — fullscreen viewfinder (U hides the panels without going fullscreen)" aria-label="Fullscreen">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5"/><path d="M21 8V3h-5"/><path d="M16 21h5v-5"/><path d="M3 16v5h5"/></svg>
       </button>
       <button id="btnHelp" class="ib" title="? or F1 — the handbook" aria-label="Help">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.2 9.2a3 3 0 0 1 5.8 1c0 2-3 2.6-3 4"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       </button>
     </div>
     <button id="btnMenu" class="mobonly menubtn" title="Open the options drawer" aria-label="Options"><svg class="mb-ico" viewBox="0 0 24 24" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg><span class="mb-txt">Options</span></button>
-    <div class="spacer"></div>
-    <div class="readout" id="readout"></div>
-  </header>
+  </div>
 
+  <!-- ---------- client area ---------- -->
   <div class="main">
     <section class="stage">
       <div class="canvaswrap" id="canvaswrap">
         <canvas id="glcanvas"></canvas>
         <div class="overlay" id="overlay"></div>
-        <button class="exitcinema" id="btnExitCinema" title="Esc — back to the panels">⛶ Exit</button>
+        <button class="exitcinema" id="btnExitCinema" title="Esc — back to the panels">Restore</button>
         <div class="msg" id="msg"></div>
       </div>
       <div class="filmstrip" id="filmstrip"></div>
@@ -80,9 +117,10 @@
 
     <aside class="panel" id="panel">
       <div class="drawerhead mobonly">
-        <span class="dh-grip"></span>
         <span class="dh-title">Options</span>
-        <button id="btnCloseDrawer" class="dh-close" title="Close" aria-label="Close options">✕</button>
+        <button id="btnCloseDrawer" class="dh-close tb-btn tb-close" title="Close" aria-label="Close options">
+          <svg viewBox="0 0 10 9" aria-hidden="true"><path d="M1 1l7 7M8 1l-7 7" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+        </button>
       </div>
       <nav class="tabs" id="tabs">
         <button data-tab="sheep" class="active">Sheep</button>
@@ -108,6 +146,35 @@
       </div>
     </aside>
   </div>
+
+  <!-- ---------- status bar ---------- -->
+  <div class="statusbar">
+    <div class="sb-cell sb-grow" id="sbStatus">Ready</div>
+    <div class="sb-cell sb-readout" id="readout"></div>
+  </div>
+</div>
+
+<!-- ---------- desktop taskbar ---------- -->
+<div class="taskbar" id="taskbar">
+  <button class="startbtn" id="startBtn" aria-haspopup="true" aria-expanded="false">
+    <svg class="startflag" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M1 4.2 L7 2.6 L7 7.4 L1 8.2 Z" fill="#ff3b30"/>
+      <path d="M8 2.4 L15 0.6 L15 6.6 L8 7.3 Z" fill="#4cd964"/>
+      <path d="M1 9.0 L7 8.2 L7 13.0 L1 11.4 Z" fill="#0a84ff"/>
+      <path d="M8 8.1 L15 7.4 L15 13.4 L8 11.7 Z" fill="#ffcc00"/>
+    </svg><span>Start</span>
+  </button>
+  <div class="tasksep" aria-hidden="true"></div>
+  <div class="tasklist">
+    <button class="taskitem active" id="taskItem">
+      <svg viewBox="0 0 16 16" aria-hidden="true" width="16" height="16">
+        <rect x="0" y="0" width="16" height="16" fill="#000080"/>
+        <path d="M8 2 L13 8 L8 14 L3 8 Z" fill="#ff8000"/>
+        <path d="M8 5 L11 8 L8 11 L5 8 Z" fill="#ffff00"/>
+      </svg><span>Electric Shepherd</span>
+    </button>
+  </div>
+  <div class="tray"><span class="clock" id="clock"></span></div>
 </div>
 
 <div class="drawerscrim" id="drawerScrim"></div>
@@ -117,23 +184,34 @@
 
 <div class="loadscreen" id="loadScreen">
   <div class="loadbox">
-    <div class="loadmark">◈</div>
-    <div class="loadtext" id="loadText">Calibrating render quality for your hardware&hellip;</div>
-    <div class="loadbar"><div class="loadbar-fill" id="loadBarFill"></div></div>
+    <div class="dlg-title"><span class="dlg-title-text">Electric Shepherd</span></div>
+    <div class="loadbody">
+      <div class="loadmark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="32" height="32">
+          <path d="M16 2 L29 16 L16 30 L3 16 Z" fill="#000080"/>
+          <path d="M16 8 L23 16 L16 24 L9 16 Z" fill="#ff8000"/>
+          <path d="M16 13 L19 16 L16 19 L13 16 Z" fill="#ffff00"/>
+        </svg>
+      </div>
+      <div class="loadtext" id="loadText">Calibrating render quality for your hardware&hellip;</div>
+      <div class="loadbar"><div class="loadbar-fill" id="loadBarFill"></div></div>
+    </div>
   </div>
 </div>
 
-<script src="js/variations.js?v=4"></script>
-<script src="js/shaders.js?v=4"></script>
-<script src="js/palette.js?v=4"></script>
-<script src="js/genome.js?v=4"></script>
-<script src="js/renderer.js?v=4"></script>
-<script src="js/evolve.js?v=4"></script>
-<script src="js/library.js?v=4"></script>
-<script src="js/render.js?v=4"></script>
-<script src="js/ui.js?v=4"></script>
+<script src="js/variations.js?v=5"></script>
+<script src="js/shaders.js?v=5"></script>
+<script src="js/palette.js?v=5"></script>
+<script src="js/genome.js?v=5"></script>
+<script src="js/renderer.js?v=5"></script>
+<script src="js/evolve.js?v=5"></script>
+<script src="js/library.js?v=5"></script>
+<script src="js/render.js?v=5"></script>
+<script src="js/ui.js?v=5"></script>
 <!-- js/help.js mirrors README.md by hand: edit both together -->
-<script src="js/help.js?v=4"></script>
-<script src="js/main.js?v=4"></script>
+<script src="js/help.js?v=5"></script>
+<script src="js/main.js?v=5"></script>
+<!-- last: it wires itself to buttons the others create -->
+<script src="js/win98.js?v=5"></script>
 </body>
 </html>
