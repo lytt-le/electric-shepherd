@@ -25,8 +25,8 @@ in the sidebar and the filter box automatically — no other wiring.
 Every asset in `index.html` is loaded with a `?v=` on the end:
 
 ```html
-<link rel="stylesheet" href="css/style.css?v=2">
-<script src="js/main.js?v=2"></script>
+<link rel="stylesheet" href="css/style.css?v=5">
+<script src="js/main.js?v=5"></script>
 ```
 
 `index.html` is served `no-cache`, but the CSS and JS go out with a long
@@ -38,7 +38,7 @@ broken, which is exactly what happened once already.
 **Bump every `?v=` together as part of deploying**, from the repo root:
 
 ```sh
-sed -i 's/?v=[0-9]*/?v=3/g' index.html
+sed -i 's/?v=[0-9]*/?v=6/g' index.html
 ```
 
 The number is arbitrary — it only has to differ from last time. Purging the

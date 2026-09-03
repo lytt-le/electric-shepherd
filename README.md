@@ -216,8 +216,8 @@ delete. Import `.sheep.json` / `.flock.json` files, or just drag them onto the w
 | `Space` | play / pause |
 | `R` | new random sheep |
 | `M` | mutate the current sheep |
-| `←` | previous sheep — walks back through the ones already seen; while streaming it morphs across as usual (also a button in the top bar) |
-| `→` | next sheep — while streaming it morphs across as usual; with the stream off it is a new random sheep (also a button in the top bar) |
+| `←` | previous sheep — walks back through the ones already seen; while streaming it morphs across as usual (also a button in the toolbar) |
+| `→` | next sheep — while streaming it morphs across as usual; with the stream off it is a new random sheep (also a button in the toolbar) |
 | `F` | auto-frame (resets the view offset; while streaming, resets it only) |
 | `K` | keep (save to the flock) |
 | `C` | clear the exposure and restart |
@@ -225,7 +225,7 @@ delete. Import `.sheep.json` / `.flock.json` files, or just drag them onto the w
 | `E` | render and save a PNG |
 | `V` | fullscreen viewfinder |
 | `U` | hide the panels without going fullscreen |
-| `H` | show / hide the sheep details overlay (off by default; also a button in the top bar) |
+| `H` | show / hide the sheep details overlay (off by default; also a button in the toolbar) |
 | `?` / `F1` | open the in-app handbook |
 | `+` / `-` | zoom |
 
@@ -241,16 +241,25 @@ Double-click a slider's *label* to reset it where a default is defined.
 
 Drag the canvas to pan, scroll to zoom, shift-drag to rotate, double-click to auto-frame.
 
-The top bar is icons rather than words, so it fits a phone as readily as a desktop. Hover
+The toolbar is icons rather than words, so it fits a phone as readily as a desktop. Hover
 any of them for its name and shortcut; the order is previous, play/pause, next,
 random, mutate, fit, keep, stream, clear, the quality preset, the details overlay,
 fullscreen and the handbook.
 
+Above it sits a menu bar — **File**, **View**, **Panels**, **Stream**, **Help** — and at
+the foot of the screen a taskbar with a **Start** menu. Neither can do anything the
+toolbar and the keyboard cannot: every entry fires the same button or the same shortcut,
+so there is one implementation of each command and three ways to reach it. **Panels**
+jumps straight to a tab of the side panel, which is the one thing the toolbar has no
+button for. The status bar along the bottom of the window repeats whatever the app last
+said, next to the frame rate and sample readout.
+
 ### On a phone or tablet
 
-A touch device gets a shell of its own. The top bar keeps every transport button — it
+A touch device gets a shell of its own. The toolbar keeps every transport button — it
 scrolls sideways when there are more than fit — and everything else starts hidden: no
-side panel, no filmstrip, no readout. The **☰ Options** button on the right slides the
+menu bar, no taskbar, no status bar, no side panel, no filmstrip, no readout. The
+**☰ Options** button on the right slides the
 panel in as a drawer, up from the bottom in portrait and in from the side in landscape,
 with the controls sized for fingers. Tap the ✕, the dimmed area, or press `Esc` on a
 keyboard to put it away again.
