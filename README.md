@@ -265,7 +265,9 @@ with the controls sized for fingers. Tap the ✕, the dimmed area, or press `Esc
 keyboard to put it away again.
 
 The canvas takes the gestures the mouse takes on a desktop: **one finger** drags to pan,
-**two fingers** pinch to zoom and twist to rotate, and a **double tap** auto-frames.
+**two fingers** pinch to zoom and twist to rotate, and a **double tap** skips sheep — on the
+right half of the canvas to the next one, on the left half back to the previous one. To
+re-frame the view, use **Auto-fit** in the Options drawer.
 
 The layout is chosen from a coarse pointer plus a phone-or-tablet-sized viewport, so a
 narrow desktop window keeps the desktop UI. Add `?mobile=1` to the URL to force the touch
@@ -372,6 +374,19 @@ mid-encode, and the view is restored exactly as it was.
 If a stage does go quiet for more than about twenty-five seconds the status says so
 rather than leaving you guessing. AV1 in particular is slow enough that this is normal
 rather than a fault.
+
+### Export still
+
+One frame of the sheep as it stands, at a deep exposure, saved as a PNG. **Resolution**
+is either *Match view* — the window's own shape multiplied by *Scale* — or an exact size,
+picked from the presets or typed in. **Quality passes** is the exposure depth, and it
+goes far past anything the live view could manage, because the view is simply frozen
+until it finishes.
+
+Asking for a frame shaped differently to the window does not stretch the picture. The
+sheep is drawn at the same scale on both axes whatever the shape of the frame, so the
+shorter edge always shows the same slice of the flame and the longer edge shows more of
+it: a wide frame gains room at the sides rather than a fatter sheep.
 
 ## The exposure
 

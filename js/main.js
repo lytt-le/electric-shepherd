@@ -22,7 +22,8 @@
     endlessAvoidRepeat: true,
     streamSource: 'flock', streamDriftOn: false, streamDrift: 3, streamDriftStrength: 0.22, streamDriftTries: 3,
     streamDriftHold: 0,
-    exportScale: 2, exportPasses: 900, recordFps: 30, recordMbps: 12,
+    exportScale: 2, exportPasses: 900, exportSize: 'view', exportW: 1920, exportH: 1080,
+    recordFps: 30, recordMbps: 12,
     renderSource: 'flock', renderSeconds: 20, renderW: 1920, renderH: 1080,
     renderFps: 30, renderPasses: 400, renderSS: 2, renderShutter: 4,
     renderFormat: 'vp09.00.10.08', renderMbps: 24
@@ -503,6 +504,7 @@
     var scale = Math.sqrt(maxOut / Math.max(1, w * h));
     if (scale < 1) { w = Math.floor(w * scale); h = Math.floor(h * scale); }
     app.renderer.setSize(w, h, ss);
+    updateExportEstimate();   // "Match view" is quoted in window pixels
   }
 
   /* ---------------- thumbnails --------------------------------------- */
@@ -2162,13 +2164,37 @@
   }
 
   /* ---------- PNG export -------------------------------------------------- */
+
+  /* The pixel size a still is saved at. 'view' keeps the shape of the window
+     and multiplies it; any other size is honoured exactly as asked for.
+
+     Nothing is ever stretched to fit that shape. The splat shader scales the
+     world by min(width, height) on both axes, so the sheep keeps its
+     proportions and it is the frame around it that changes: the shorter edge
+     always shows the same slice of the flame, and the longer edge reveals
+     more of it. Asking for a wider frame than the window therefore shows more
+     to the sides rather than a fatter sheep. */
+  function exportPixels() {
+    var st = app.settings, r = app.renderer;
+    var w, h;
+    if (st.exportSize === 'view') {
+      var s = Math.max(1, st.exportScale | 0);
+      w = Math.round((r ? r.width : 1920) * s);
+      h = Math.round((r ? r.height : 1080) * s);
+    } else {
+      w = st.exportW | 0; h = st.exportH | 0;
+    }
+    w = Math.max(16, Math.min(7680, w));
+    h = Math.max(16, Math.min(4320, h));
+    return { w: w, h: h, ss: (w * h > 4e6) ? 1 : 2 };
+  }
+
   function exportPNG() {
     if (app.busy || renderJob) { toast('Busy — a render is running'); return; }
     var r = app.renderer;
     var oldW = r.width, oldH = r.height, oldSS = r.ss;
-    var scale = app.settings.exportScale;
-    var w = Math.min(7680, Math.round(oldW * scale)), h = Math.min(4320, Math.round(oldH * scale));
-    var ss = (w * h > 4e6) ? 1 : 2;
+    var sz = exportPixels();
+    var w = sz.w, h = sz.h, ss = sz.ss;
     r.setSize(w, h, ss);
     r.setGenome(app.genome);
     r.resetPoints(app.genome.seed || 1);
@@ -2574,6 +2600,15 @@
     { value: '2560x1440', label: '2560 × 1440' },
     { value: '3840x2160', label: '3840 × 2160  (4K)' }
   ];
+  /* A still is not a video frame, so it gets shapes a codec would never want.
+     They are worth having precisely because the frame is not stretched to
+     fit: a square or a portrait crop reframes the sheep rather than
+     squashing it. */
+  var STILL_PRESETS = RES_PRESETS.concat([
+    { value: '2048x2048', label: '2048 × 2048  (square)' },
+    { value: '4096x4096', label: '4096 × 4096  (square)' },
+    { value: '2160x3840', label: '2160 × 3840  (portrait)' }
+  ]);
 
   function buildOutputPane() {
     var root = document.querySelector('[data-pane=output]');
@@ -2692,10 +2727,67 @@
     ]);
 
     var ge = U.group(root, 'Export still');
-    U.slider(p, ge, { label: 'Scale', min: 1, max: 4, step: 1, fmt: function (v) { return v + '×'; }, get: function () { return app.settings.exportScale; }, set: function (v) { app.settings.exportScale = v | 0; saveSettings(); } });
-    U.slider(p, ge, { label: 'Quality passes', min: 100, max: 6000, step: 50, get: function () { return app.settings.exportPasses; }, set: function (v) { app.settings.exportPasses = v | 0; saveSettings(); } });
+    U.select(p, ge, {
+      label: 'Resolution',
+      options: [{ value: 'view', label: 'Match view' }].concat(STILL_PRESETS, [{ value: 'custom', label: 'Custom' }]),
+      title: 'A frame shaped differently to the window shows more or less of the sheep around the shorter edge — the image is never stretched to fit.',
+      get: function () {
+        var st = app.settings;
+        if (st.exportSize === 'view') return 'view';
+        var k = st.exportW + 'x' + st.exportH;
+        for (var i = 0; i < STILL_PRESETS.length; i++) if (STILL_PRESETS[i].value === k) return k;
+        return 'custom';
+      },
+      set: function (v) {
+        var st = app.settings;
+        if (v === 'view') st.exportSize = 'view';
+        else {
+          st.exportSize = 'custom';
+          if (v !== 'custom') { var parts = v.split('x'); st.exportW = +parts[0]; st.exportH = +parts[1]; }
+        }
+        saveSettings(); buildOutputPane();
+      }
+    });
+    if (app.settings.exportSize === 'view') {
+      U.slider(p, ge, {
+        label: 'Scale', min: 1, max: 4, step: 1, fmt: function (v) { return v + '×'; },
+        get: function () { return app.settings.exportScale; },
+        set: function (v) { app.settings.exportScale = v | 0; saveSettings(); updateExportEstimate(); }
+      });
+    } else {
+      U.number(p, ge, {
+        label: 'Width', step: 2, min: 16, max: 7680,
+        get: function () { return app.settings.exportW; },
+        set: function (v) { app.settings.exportW = Math.max(16, Math.min(7680, v | 0)); saveSettings(); p.refresh(); updateExportEstimate(); }
+      });
+      U.number(p, ge, {
+        label: 'Height', step: 2, min: 16, max: 4320,
+        get: function () { return app.settings.exportH; },
+        set: function (v) { app.settings.exportH = Math.max(16, Math.min(4320, v | 0)); saveSettings(); p.refresh(); updateExportEstimate(); }
+      });
+    }
+    U.slider(p, ge, {
+      label: 'Quality passes', min: 100, max: 40000, step: 50,
+      title: 'Passes accumulated into the still. Deeper exposures clean up the grain in the faint parts; the view is frozen until it finishes.',
+      get: function () { return app.settings.exportPasses; },
+      set: function (v) { app.settings.exportPasses = v | 0; saveSettings(); updateExportEstimate(); }
+    });
+    ge.appendChild(U.el('div', { class: 'kv', id: 'exportEst' }));
+    updateExportEstimate();
     U.buttons(ge, [{ label: 'Render & save PNG', class: 'primary', onclick: exportPNG }]);
     U.hint(ge, 'One frame of the sheep as it stands, at a deep exposure. The view pauses while it works.');
+  }
+
+  /* Refreshed in place for the same reason as the render estimate: rebuilding
+     the pane from a slider's input event would replace the element being
+     dragged. */
+  function updateExportEstimate() {
+    var est = document.getElementById('exportEst');
+    if (!est) return;
+    var sz = exportPixels();
+    est.innerHTML =
+      '<span>output</span><b>' + sz.w + '×' + sz.h + ' · ' + sz.ss + '× SS</b>' +
+      '<span>exposure</span><b>' + app.settings.exportPasses + ' passes</b>';
   }
 
   /* ---------- Library ------------------------------------------------------ */
@@ -2993,10 +3085,11 @@
   }
 
   /* Touch equivalents of the three gestures above: one finger drags the
-     camera, two pinch to zoom and twist to rotate, a double tap re-frames.
-     Every handler calls preventDefault so the browser never turns a drag
-     into a page scroll, a pinch into a page zoom, or a tap into a
-     synthetic mouse drag that would then be handled twice. */
+     camera, two pinch to zoom and twist to rotate, and a double tap skips
+     to the next sheep on the right half of the canvas or the previous one
+     on the left half. Every handler calls preventDefault so the browser
+     never turns a drag into a page scroll, a pinch into a page zoom, or a
+     tap into a synthetic mouse drag that would then be handled twice. */
   function bindTouch(c) {
     var mode = 0;                 // 0 idle, 1 one finger, 2 two fingers
     var px = 0, py = 0, pd = 0, pa = 0, travel = 0, lastTap = 0;
@@ -3039,7 +3132,16 @@
       if (t.length === 0) {
         if (mode === 1 && travel < 14) {          // a tap that went nowhere
           var now = Date.now();
-          if (now - lastTap < 320) { doFit(); lastTap = 0; } else lastTap = now;
+          if (now - lastTap < 320) {
+            // which half of the canvas the second tap landed on decides
+            // the direction; fall back to the last known finger position
+            // if the browser gave us no changed touch to measure
+            var ct = e.changedTouches && e.changedTouches[0];
+            var x = ct ? ct.clientX : px;
+            var r = c.getBoundingClientRect();
+            if (x - r.left < r.width / 2) doSkipPrev(); else doSkipNext();
+            lastTap = 0;
+          } else lastTap = now;
         }
         mode = 0;
       } else if (t.length === 1) {
