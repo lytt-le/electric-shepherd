@@ -200,9 +200,13 @@ input[type=range]::-moz-range-thumb{
 /* =========================================================================
    THE WINDOW
    ========================================================================= */
+/* Static, and the taskbar strip is reserved with height rather than by
+   pinning the window to `bottom`. This has to stay static: a fixed-position
+   element establishes a stacking context whatever its z-index, which would
+   trap the mobile drawer's z-index:60 inside the window and let the scrim
+   at z-index:55 paint - and take taps - over the whole open drawer. */
 .app{
-  display:flex;flex-direction:column;
-  position:fixed;left:0;right:0;top:0;bottom:var(--taskbar);
+  display:flex;flex-direction:column;height:calc(100vh - var(--taskbar));
   background:var(--face);box-shadow:var(--win);padding:3px;
 }
 
@@ -397,7 +401,7 @@ body.cinema .statusbar,
 body.cinema .panel,
 body.cinema .filmstrip,
 body.cinema .taskbar{display:none}
-body.cinema .app{bottom:0;padding:0;box-shadow:none;background:#000}
+body.cinema .app{height:100vh;padding:0;box-shadow:none;background:#000}
 body.cinema .canvaswrap{box-shadow:none;padding:0}
 body.cinema.idle{cursor:none}
 body.cinema.idle .exitcinema{opacity:0}
@@ -787,7 +791,7 @@ body.mobile .menubar,
 body.mobile .statusbar{display:none}
 /* dvh, not vh: mobile browsers count the collapsing URL bar in vh and the
    bottom of the app ends up hidden underneath it */
-body.mobile .app{height:100dvh;bottom:0;padding:0;box-shadow:none}
+body.mobile .app{height:100dvh;padding:0;box-shadow:none}
 
 body.mobile .titlebar{
   height:auto;min-height:24px;margin:0;
