@@ -2993,10 +2993,11 @@
   }
 
   /* Touch equivalents of the three gestures above: one finger drags the
-     camera, two pinch to zoom and twist to rotate, a double tap re-frames.
-     Every handler calls preventDefault so the browser never turns a drag
-     into a page scroll, a pinch into a page zoom, or a tap into a
-     synthetic mouse drag that would then be handled twice. */
+     camera, two pinch to zoom and twist to rotate, and a double tap skips
+     to the next sheep on the right half of the canvas or the previous one
+     on the left half. Every handler calls preventDefault so the browser
+     never turns a drag into a page scroll, a pinch into a page zoom, or a
+     tap into a synthetic mouse drag that would then be handled twice. */
   function bindTouch(c) {
     var mode = 0;                 // 0 idle, 1 one finger, 2 two fingers
     var px = 0, py = 0, pd = 0, pa = 0, travel = 0, lastTap = 0;
@@ -3039,7 +3040,16 @@
       if (t.length === 0) {
         if (mode === 1 && travel < 14) {          // a tap that went nowhere
           var now = Date.now();
-          if (now - lastTap < 320) { doFit(); lastTap = 0; } else lastTap = now;
+          if (now - lastTap < 320) {
+            // which half of the canvas the second tap landed on decides
+            // the direction; fall back to the last known finger position
+            // if the browser gave us no changed touch to measure
+            var ct = e.changedTouches && e.changedTouches[0];
+            var x = ct ? ct.clientX : px;
+            var r = c.getBoundingClientRect();
+            if (x - r.left < r.width / 2) doSkipPrev(); else doSkipNext();
+            lastTap = 0;
+          } else lastTap = now;
         }
         mode = 0;
       } else if (t.length === 1) {

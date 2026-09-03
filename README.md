@@ -265,7 +265,9 @@ with the controls sized for fingers. Tap the ✕, the dimmed area, or press `Esc
 keyboard to put it away again.
 
 The canvas takes the gestures the mouse takes on a desktop: **one finger** drags to pan,
-**two fingers** pinch to zoom and twist to rotate, and a **double tap** auto-frames.
+**two fingers** pinch to zoom and twist to rotate, and a **double tap** skips sheep — on the
+right half of the canvas to the next one, on the left half back to the previous one. To
+re-frame the view, use **Auto-fit** in the Options drawer.
 
 The layout is chosen from a coarse pointer plus a phone-or-tablet-sized viewport, so a
 narrow desktop window keeps the desktop UI. Add `?mobile=1` to the URL to force the touch
