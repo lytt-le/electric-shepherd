@@ -18,9 +18,14 @@
    Per voice:
 
      fm ─→ fmGain ─┐(frequency)
-     sine ─→ gSine ┤
-     saw  ─→ gSaw  ┼─→ drive ─→ shaper ─→ trim ─→ filter ─→ pan ─→ out ─→ bus
-     noise ─→ gNoise┘
+     sine ─→ gSine ┤                                              ┌→ drone ─┐
+     saw  ─→ gSaw  ┼─→ drive ─→ shaper ─→ trim ─→ filter ─→ pan ─→┤         ├→ bus
+     noise ─→ gNoise┘                                    (out) ───┴→ env ───┘
+
+   The drone and the note envelope hang off the voice in parallel rather
+   than in series. They answer to different owners - drone to apply(), env
+   to the step scheduler - and in series they would fight over one
+   AudioParam every time the balance moved.
 
    Master: bus ─→ busFilter ─→ hiss? ─→ masterGain ─→ volume ─→ gate ─→ limiter ─→ out
    ===================================================================== */
@@ -80,6 +85,8 @@
     this.drive = c.createGain(); this.drive.gain.value = 1;
     this.trim = c.createGain(); this.trim.gain.value = 1;
     this.out = c.createGain(); this.out.gain.value = 0;
+    this.droneG = c.createGain(); this.droneG.gain.value = 1;
+    this.env = c.createGain(); this.env.gain.value = 0;
 
     this.shaper = c.createWaveShaper();
     this.shaper.curve = curve;
@@ -110,7 +117,8 @@
     this.trim.connect(this.filt);
     if (this.pan) { this.filt.connect(this.pan); this.pan.connect(this.out); }
     else this.filt.connect(this.out);
-    this.out.connect(bus);
+    this.out.connect(this.droneG); this.droneG.connect(bus);
+    this.out.connect(this.env); this.env.connect(bus);
   }
 
   Voice.prototype.start = function (when) {
@@ -118,7 +126,21 @@
     this.fm.start(when); this.noise.start(when);
   };
 
-  Voice.prototype.set = function (v, t, gate) {
+  /* One note. The release always finishes before the next step lands, so
+     the value is already zero when setValueAtTime writes zero and there is
+     nothing to cut off - which is where clicks come from. Written with
+     plain linear ramps for the same reason: cancelAndHoldAtTime would do
+     this more precisely and Firefox does not have it. */
+  Voice.prototype.trigger = function (when, atk, hold, peak) {
+    var g = this.env.gain;
+    atk = Math.min(atk, hold * 0.5);
+    g.setValueAtTime(0, when);
+    g.linearRampToValueAtTime(peak, when + atk);
+    g.linearRampToValueAtTime(0, when + hold);
+  };
+
+  Voice.prototype.set = function (v, t, gate, drone) {
+    param(this.droneG.gain, drone, t, 0.06);
     /* Most sheep have three or four transforms, so most voices are silent
        most of the time. Re-sending a dozen identical values to each of them
        twenty-five times a second is pure waste next to a GPU that wants the
@@ -166,6 +188,10 @@
     this.active = false;
     this.volume = 1;
     this.idleTimer = null;
+    this.seqNext = 0;       // audio time of the next step
+    this.seqIdx = 0;        // position in the pattern
+    this.seqCur = 0;        // the transform the token is sitting on
+    this.rngState = 1;
 
     var c = ctx;
     this.bus = c.createGain(); this.bus.gain.value = 1;
@@ -252,8 +278,76 @@
     param(this.busFilt.frequency, spec.master.cutoff, t, 0.06);
     param(this.master.gain, spec.master.gain, t, 0.06);
     param(this.hissGain.gain, gate ? spec.master.hiss : 0, t, 0.1);
+    var seq = spec.sequence;
+    var drone = (seq && seq.on) ? 1 - seq.mix : 1;
     for (var i = 0; i < this.voices.length; i++) {
-      this.voices[i].set(spec.voices[i], t, gate);
+      this.voices[i].set(spec.voices[i], t, gate, drone);
+    }
+    if (seq) this.runSeq(seq, gate, t);
+  };
+
+  /* ---------------- the chaos game, at six notes a second --------------
+     Exactly the draw the renderer's inner loop makes - a transform picked
+     with probability proportional to its weight, gated by xaos - only
+     slowly enough to hear. The token has to live here rather than in the
+     spec because a pure function cannot carry a walk.
+
+     Notes are scheduled on the audio clock rather than on frames. The
+     frame loop deliberately clamps animation to 50ms so a hitch costs a
+     little speed instead of a jump, which is right for a picture and
+     wrong for a sequence: on frames, a dropped frame would be a dropped
+     note. So parameters follow requestAnimationFrame and note scheduling
+     follows currentTime, with enough lookahead to ride out a stutter. */
+  var LOOKAHEAD = 0.14;
+
+  FlameAudio.prototype.rnd = function () {
+    var s = this.rngState >>> 0;
+    s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0;
+    this.rngState = s;
+    return s / 4294967296;
+  };
+
+  FlameAudio.prototype.pickNext = function (cur, s) {
+    var n = s.n, w = s.weights, x = s.xaos, i, tot = 0;
+    if (!(cur >= 0 && cur < n)) cur = 0;
+    for (i = 0; i < n; i++) tot += w[i] * (x ? x[cur][i] : 1);
+    // xaos can close every door out of a transform; step on rather than hang
+    if (!(tot > 0)) return (cur + 1) % n;
+    var r = this.rnd() * tot, acc = 0;
+    for (i = 0; i < n; i++) {
+      acc += w[i] * (x ? x[cur][i] : 1);
+      if (r < acc) return i;
+    }
+    return n - 1;
+  };
+
+  FlameAudio.prototype.runSeq = function (s, gate, t) {
+    if (!s.on || !gate) { this.seqNext = 0; return; }
+    var dur = 1 / s.rate;
+    if (!this.seqNext || this.seqNext < t - 1) {
+      // first note, or back from a hidden tab: start clean rather than
+      // trying to make up for the silence
+      this.seqNext = t + 0.05;
+      this.seqIdx = 0;
+      this.seqCur = 0;
+      this.rngState = s.seed;
+    } else if (this.seqNext < t) {
+      // a hitch: skip the notes that went past rather than firing them all
+      // at once, and keep the position in the pattern
+      var miss = Math.ceil((t - this.seqNext) / dur);
+      this.seqNext += miss * dur;
+      this.seqIdx += miss;
+    }
+    var guard = 0;
+    while (this.seqNext < t + LOOKAHEAD && guard++ < 64) {
+      // re-seeding every `steps` is what makes the riff repeat: steps is a
+      // whole number per loop, so the pattern comes round with the picture
+      if (this.seqIdx % s.steps === 0) this.rngState = s.seed;
+      this.seqCur = this.pickNext(this.seqCur, s);
+      var v = this.voices[this.seqCur];
+      if (v) v.trigger(this.seqNext, s.attack, Math.min(s.hold, dur * 0.95), s.mix);
+      this.seqNext += dur;
+      this.seqIdx++;
     }
   };
 

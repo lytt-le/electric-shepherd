@@ -154,6 +154,74 @@
     oscilloscope: 1, waves2: 0, super_shape: 1
   };
 
+  /* ---------------- harmony -----------------------------------------
+     Pitch classes, as offsets from the root. Quantising matters more than
+     it looks: an arbitrary genome hands out arbitrary contraction ratios,
+     and unquantised they pile up into a cluster that says nothing about
+     the sheep. On a scale the same numbers become intervals you can hear
+     the difference between. */
+  var SCALES = {
+    pentatonic: [0, 3, 5, 7, 10],
+    minor: [0, 2, 3, 5, 7, 8, 10],
+    dorian: [0, 2, 3, 5, 7, 9, 10],
+    major: [0, 2, 4, 5, 7, 9, 11],
+    lydian: [0, 2, 4, 6, 7, 9, 11],
+    wholetone: [0, 2, 4, 6, 8, 10],
+    chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+  };
+  var SCALE_NAMES = Object.keys(SCALES);
+
+  /* The palette generators already describe hue structure, so where one was
+     used it is taken at its word rather than measured: a mono palette is
+     one hue and has nothing to argue about, a triadic palette is three.
+     'preset' and hand-edited stops declare nothing, so those get measured
+     instead - see spreadScale below. */
+  var SCALE_BY_MODE = {
+    'mono': 'pentatonic',          // one hue, nothing to argue about
+    'analogous': 'minor',          // a cluster of neighbours
+    'complementary': 'lydian',     // two poles, so let the tritone show
+    'triadic': 'major',            // three, consonant
+    'hue-walk': 'dorian',          // a line travelling
+    'random-smooth': 'wholetone'   // no centre to speak of
+  };
+
+  /* How far the gradient travels round the wheel, as circular variance:
+     0 is a single hue, 1 is hues pointing every way at once. A narrow
+     palette gets a narrow, consonant scale and a wide one gets an
+     ambiguous scale, which is the same statement in two media. */
+  /* The cube root is not decoration. Measured over the built-in presets
+     the raw variance piles up against zero - median 0.10, a quarter of
+     them under 0.004 - because most gradients are a warm sweep rather
+     than a trip round the wheel. Thresholds spaced evenly on the raw
+     number would drop half of every flock into one scale, which is the
+     failure this whole feature has to avoid: eighty sheep in a stream
+     that all sound the same. The cube root opens out the crowded end so
+     narrow palettes are told apart from each other rather than lumped. */
+  function spreadScale(spread) {
+    var x = Math.pow(clamp(spread, 0, 1), 1 / 3);
+    if (x < 0.167) return 'pentatonic';
+    if (x < 0.333) return 'minor';
+    if (x < 0.500) return 'dorian';
+    if (x < 0.667) return 'major';
+    if (x < 0.833) return 'lydian';
+    return 'wholetone';
+  }
+
+  /* Nearest degree of the scale, keeping the octave. */
+  function quantise(semis, scale) {
+    if (!scale) return semis;
+    var oct = Math.floor(semis / 12), pc = semis - oct * 12;
+    var best = scale[0], bd = Math.abs(scale[0] - pc);
+    for (var i = 1; i < scale.length; i++) {
+      var d = Math.abs(scale[i] - pc);
+      if (d < bd) { bd = d; best = scale[i]; }
+    }
+    // the root an octave up is a candidate too, or everything near B
+    // collapses down onto the leading note instead of resolving upward
+    if (Math.abs(scale[0] + 12 - pc) < bd) best = scale[0] + 12;
+    return oct * 12 + best;
+  }
+
   function timbreRow(name) {
     var row = TIMBRE[name];
     if (row) return row;
@@ -183,7 +251,15 @@
      the palette cycle into a transposition later on.) */
   var lutScratch = new Float32Array(256 * 4);
 
-  function rootFrom(palette) {
+  function hueAt(lut, u) {
+    u = u - Math.floor(u);
+    var i = Math.min(255, Math.max(0, Math.round(u * 255)));
+    var hsv = PAL.rgb2hsv([lut[i * 4], lut[i * 4 + 1], lut[i * 4 + 2]]);
+    // a grey stop has no hue to speak of, so fall back to the index itself
+    return hsv[1] < 0.06 ? u : hsv[0];
+  }
+
+  function harmonyOf(palette, scaleOpt) {
     var lut = PAL.buildLUT(palette, lutScratch);
     var sx = 0, sy = 0, sw = 0;
     for (var i = 0; i < 256; i += 4) {
@@ -193,14 +269,33 @@
       var a = hsv[0] * Math.PI * 2;
       sx += Math.cos(a) * w; sy += Math.sin(a) * w; sw += w;
     }
-    var hue = 0;
-    if (sw > 1e-6) { hue = Math.atan2(sy, sx) / (Math.PI * 2); hue -= Math.floor(hue); }
-    // C2 through C3 - low enough to sit under everything the voices do
-    return 65.406 * Math.pow(2, hue);
+    var hue = 0, spread = 1;
+    if (sw > 1e-6) {
+      hue = Math.atan2(sy, sx) / (Math.PI * 2); hue -= Math.floor(hue);
+      // circular variance: 0 when every hue agrees, 1 when they cancel out
+      spread = 1 - Math.sqrt(sx * sx + sy * sy) / sw;
+    }
+
+    var name;
+    if (scaleOpt && scaleOpt !== 'auto') name = scaleOpt;
+    else name = SCALE_BY_MODE[palette && palette.mode] || spreadScale(spread);
+
+    return {
+      lut: lut,
+      // C2 through C3 - low enough to sit under everything the voices do.
+      // The mean is a circular one over the whole gradient, so it does not
+      // move when the palette rotates: rotating turns the colours without
+      // changing the sheep's key. What rotate does move is each voice's own
+      // hue lookup below, which is the transposition.
+      root: 65.406 * Math.pow(2, hue),
+      spread: spread,
+      scaleName: name === 'off' ? 'off' : (SCALES[name] ? name : 'pentatonic'),
+      scale: name === 'off' ? null : (SCALES[name] || SCALES.pentatonic)
+    };
   }
 
   /* ---------------- one transform, read as a voice ------------------- */
-  function describeVoice(xf, i, sumW, root) {
+  function describeVoice(xf, i, sumW, harm) {
     var d = GEN.decomposeAffine(xf.affine);
     var lx = clamp(finite(d.lx, 1), 1e-4, 64);
     var ly = clamp(finite(d.ly, 1), 1e-4, 64);
@@ -213,8 +308,10 @@
        is what the palette indexes, so two transforms of the same shape
        but different colour should not land on the same note. */
     var s = Math.sqrt(lx * ly);
-    var semis = clamp(-12 * Math.log(s) / Math.LN2, -12, 48) + (xf.color || 0) * 12;
-    var freq = clamp(root * Math.pow(2, semis / 12), 25, 9000);
+    var hue = hueAt(harm.lut, xf.color || 0);
+    var raw = clamp(-12 * Math.log(s) / Math.LN2, -12, 48) + hue * 12;
+    var semis = quantise(raw, harm.scale);
+    var freq = clamp(harm.root * Math.pow(2, semis / 12), 25, 9000);
 
     /* Anisotropy: a transform that stretches the attractor along one axis
        stretches the spectrum too. */
@@ -258,6 +355,7 @@
       // colour speed is how fast a point settles into its colour, so it is
       // how fast a voice settles onto its pitch
       glide: 0.01 + clamp(finite(xf.colorSpeed, 0.5), 0, 1) * 0.35,
+      hue: hue,
       bright: clamp(bright, 0, 1),
       noise: clamp(noise, 0, 1),
       inhar: clamp(inhar, 0, 1),
@@ -269,13 +367,92 @@
 
   function silentVoice(i) {
     return {
-      i: i, on: false, invert: false, level: 0, freq: 110, pan: 0, glide: 0.1,
+      i: i, on: false, invert: false, level: 0, freq: 110, pan: 0, glide: 0.1, hue: 0,
       bright: 0.3, noise: 0, inhar: 0, reson: 0.1, fold: 0, ratio: 1
     };
   }
 
-  /* ---------------- the whole sheep ---------------------------------- */
-  function describe(g) {
+  /* ---------------- the sequence -------------------------------------
+     The picture is drawn by a token hopping between transforms: one is
+     chosen with probability proportional to its weight, and xaos[i][j]
+     decides which may follow which. Run the identical hop at six notes a
+     second instead of a million and every landing is a note, so the
+     melody and the image are the same process at two rates rather than
+     two systems that happen to sit in one app.
+
+     It also gives xaos something to be. It is the most abstract control
+     in the whole interface - a matrix of transition weights whose effect
+     on a picture is diffuse - and here a sparse one is the difference
+     between a wandering line and a riff you can whistle.
+
+     What goes in the spec is the transition table; the token itself lives
+     in the engine, because a pure function cannot carry a walk. The seed
+     travels with it so the walk is reproducible: the same sheep plays the
+     same riff, on any machine, today and next year. */
+  function sequenceOf(g, xf, sumW, opts, loopSecs) {
+    var n = Math.min(xf.length, MAX_VOICES);
+    var mix = clamp(finite(opts.seqMix, 0.6), 0, 1);
+    if (!n || mix < 0.001) return { on: false, mix: 0, steps: 1, rate: 1, seed: 0, n: 0, weights: null, xaos: null, attack: 0.01, hold: 0.1 };
+
+    var w = [], i, j;
+    for (i = 0; i < n; i++) w.push(sumW > 1e-9 ? Math.max(0, xf[i].weight || 0) / sumW : 1 / n);
+
+    /* xaos is stored per transform as outgoing multipliers, null meaning
+       all ones. Copied rather than referenced: the genome handed to us is
+       a frame of an animation and will be thrown away. */
+    var xa = null;
+    for (i = 0; i < n; i++) {
+      if (!xf[i].xaos) continue;
+      xa = [];
+      for (var a = 0; a < n; a++) {
+        var row = [];
+        for (j = 0; j < n; j++) row.push(xf[a].xaos ? Math.max(0, finite(xf[a].xaos[j], 1)) : 1);
+        xa.push(row);
+      }
+      break;
+    }
+
+    /* Whole steps per loop, for the same reason animator cycles are whole
+       numbers: a fraction would not close. With no loop to fit, the rate
+       is simply the rate asked for. */
+    var per = clamp(finite(opts.steps, 6), 1, 16);
+    var steps, rate;
+    if (loopSecs > 0) {
+      steps = Math.max(1, Math.min(256, Math.round(loopSecs * per)));
+      rate = steps / loopSecs;
+    } else {
+      steps = 16;
+      rate = per;
+    }
+
+    var dur = 1 / rate;
+    return {
+      on: true,
+      mix: mix,
+      steps: steps,
+      rate: rate,
+      seed: (g.seed >>> 0) || 1,
+      n: n,
+      weights: w,
+      xaos: xa,
+      // density estimation smooths the sparse outer regions of a picture;
+      // smoothing the front of a note is the same move in time
+      attack: 0.004 + (g.render && g.render.de ? clamp(finite(g.render.deRadius, 1.6), 0, 6) * 0.012 : 0),
+      // always finished before the next step lands, so a note never has to
+      // be cut off - which is where clicks come from
+      hold: dur * 0.9
+    };
+  }
+
+  /* ---------------- the whole sheep ----------------------------------
+     `opts` carries the listener's preferences - scale lock, note rate,
+     how much sequence against how much drone. They are arguments rather
+     than module state so this stays a pure function of its inputs, which
+     is what lets an offline render call it on a schedule of t. */
+  var DEFAULT_OPTS = { scale: 'auto', steps: 6, seqMix: 0.6 };
+
+  function describe(g, opts) {
+    opts = opts || DEFAULT_OPTS;
     var r = g.render || {};
     var cam = g.camera || {};
     var xf = g.xforms || [];
@@ -283,10 +460,10 @@
     var sumW = 0, i;
     for (i = 0; i < xf.length && i < MAX_VOICES; i++) sumW += Math.max(0, xf[i].weight || 0);
 
-    var root = rootFrom(g.palette);
+    var harm = harmonyOf(g.palette, opts.scale);
     var voices = [];
     for (i = 0; i < MAX_VOICES; i++) {
-      voices.push(i < xf.length ? describeVoice(xf[i], i, sumW, root) : silentVoice(i));
+      voices.push(i < xf.length ? describeVoice(xf[i], i, sumW, harm) : silentVoice(i));
     }
 
     /* The bus. Only the parts that are genuinely a tone curve or a
@@ -299,7 +476,7 @@
     var zoom = clamp(finite(cam.zoom, 0.45), 0.02, 40);
     var cutoff = 1400 * Math.pow(zoom / 0.45, 0.55);
     if (g.final) {
-      var fv = describeVoice(g.final, -1, 1, root);
+      var fv = describeVoice(g.final, -1, 1, harm);
       cutoff *= 0.65 + fv.bright * 0.9;
     }
     // the vignette darkens the edges of the picture; it rolls off the top
@@ -307,7 +484,9 @@
     cutoff *= 1 - clamp(finite(r.vignette, 0), 0, 1) * 0.45;
 
     return {
-      root: root,
+      root: harm.root,
+      scale: harm.scaleName,
+      spread: harm.spread,
       master: {
         // brightness is the exposure of the picture, so it is the level
         // of the mix; it is quoted around 3.2, which is unity here
@@ -316,13 +495,17 @@
         // grain is literally a noise floor in both media
         hiss: clamp(finite(r.grain, 0), 0, 1) * 0.06
       },
-      voices: voices
+      voices: voices,
+      sequence: sequenceOf(g, xf, sumW, opts, GEN.loopSeconds(g))
     };
   }
 
   global.FlameSound = {
     MAX_VOICES: MAX_VOICES,
     TIMBRE: TIMBRE,
+    SCALES: SCALES,
+    SCALE_NAMES: SCALE_NAMES,
+    DEFAULT_OPTS: DEFAULT_OPTS,
     describe: describe,
     noteName: noteName
   };

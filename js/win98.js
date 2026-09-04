@@ -88,6 +88,7 @@
       { label: 'Palette', run: tab('palette') },
       { label: 'Image', run: tab('render') },
       { label: 'Loop', run: tab('loop') },
+      { label: 'Sound', run: tab('sound') },
       { label: 'Evolve', run: tab('evolve') },
       { label: 'Stream', run: tab('stream') },
       { label: 'Render', run: tab('output') },

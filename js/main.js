@@ -23,7 +23,7 @@
     endlessAvoidRepeat: true,
     streamSource: 'flock', streamDriftOn: false, streamDrift: 3, streamDriftStrength: 0.22, streamDriftTries: 3,
     streamDriftHold: 0,
-    soundOn: false, soundVolume: 0.6,
+    soundOn: false, soundVolume: 0.6, soundSeqMix: 0.6, soundSteps: 6, soundScale: 'auto',
     exportScale: 2, exportPasses: 900, exportSize: 'view', exportW: 1920, exportH: 1080,
     recordFps: 30, recordMbps: 12,
     renderSource: 'flock', renderSeconds: 20, renderW: 1920, renderH: 1080,
@@ -182,14 +182,14 @@
     app.settings.soundOn = on;
     saveSettings();
     syncSoundBtn();
-    if (app.panels.sheep) app.panels.sheep.refresh();   // the checkbox lives in the Sheep pane
+    if (app.panels.sound) app.panels.sound.refresh();   // the checkbox lives in the Sound pane
   }
   function toggleSound() { setSound(!app.settings.soundOn); }
 
   /* Volume has two controls - the toolbar trackbar and the Sheep pane's
      slider - and, like every other command in this app, one implementation
      behind them. Each calls this and this puts the other one right. */
-  var volCtl = null;          // the Sheep pane's slider, while that pane exists
+  var volCtl = null;          // the Sound pane's slider, while that pane exists
   function setSoundVolume(v) {
     app.settings.soundVolume = Math.max(0, Math.min(1, v));
     saveSettings();
@@ -202,6 +202,18 @@
     // Firefox snaps the thumb back under the pointer
     if (s && document.activeElement !== s) s.value = app.settings.soundVolume;
     if (volCtl) { try { volCtl.update(); } catch (e) { volCtl = null; } }
+  }
+
+  /* The listener's preferences, kept out of the genome on purpose: a
+     sheep's sound is entirely determined by the fields it already has, so
+     nothing new goes into the file format and every sheep ever saved
+     gained a soundtrack the day this landed. */
+  function soundOpts() {
+    return {
+      scale: app.settings.soundScale,
+      steps: app.settings.soundSteps,
+      seqMix: app.settings.soundSeqMix
+    };
   }
   function syncSoundBtn() {
     var b = $('btnSound');
@@ -216,8 +228,13 @@
      tell a mapping that is wrong from a sheep that is quiet. */
   function soundReadout() {
     if (!app.genome) return '';
-    var spec = SND.describe(app.genome);
-    var out = '<span>root</span><b>' + SND.noteName(spec.root) + '</b>';
+    var spec = SND.describe(app.genome, soundOpts());
+    var q = spec.sequence;
+    var out = '<span>key</span><b>' + SND.noteName(spec.root) + ' ' + spec.scale + '</b>';
+    if (q.on) {
+      out += '<span>pattern</span><b>' + q.steps + ' steps at ' + q.rate.toFixed(1) + '/s' +
+        (q.xaos ? ' · xaos' : '') + '</b>';
+    }
     var n = 0;
     for (var i = 0; i < spec.voices.length; i++) {
       var v = spec.voices[i];
@@ -245,7 +262,7 @@
     // one source of truth covering the still view, a loop and a morph alike
     var g = (app.renderer && app.renderer.genome) || app.genome;
     if (!g) return;
-    app.audio.apply(SND.describe(g), app.playing && !app.busy);
+    app.audio.apply(SND.describe(g, soundOpts()), app.playing && !app.busy);
   }
 
   /* The transport row is longer than a phone is wide, so it scrolls. Mark
@@ -663,6 +680,7 @@
     buildPalettePane();
     buildRenderPane();
     buildLoopPane();
+    buildSoundPane();
     buildStreamPane();
     buildOutputPane();
     renderLibrary();
@@ -756,25 +774,6 @@
     U.buttons(gv, [
       { label: 'Reset view', class: 'primary', title: 'F', onclick: function () { resetView(); } }
     ]);
-
-    var gsn = U.group(root, 'Sound', { key: 'sound', collapsed: true });
-    U.check(p, gsn, {
-      label: 'Play the sheep', title: 'A — every transform becomes a voice',
-      get: function () { return app.settings.soundOn; },
-      set: function (v) { setSound(v); }
-    });
-    volCtl = U.slider(p, gsn, {
-      label: 'Volume', min: 0, max: 1, step: 0.01, reset: 0.6,
-      fmt: function (v) { return Math.round(v * 100) + '%'; },
-      get: function () { return app.settings.soundVolume; },
-      set: setSoundVolume
-    });
-    var sinfo = U.el('div', { class: 'kv' });
-    gsn.appendChild(sinfo);
-    p.add({ el: sinfo, update: function () { sinfo.innerHTML = soundReadout(); } });
-    U.hint(gsn, 'Pitch comes from how far each transform contracts, level from its ' +
-      'weight and opacity, and timbre from its variations. Nothing here is saved into ' +
-      'the sheep — every sheep already carries everything the sound needs.');
 
     var gg = U.group(root, 'New sheep recipe', { collapsed: true });
     U.slider(p, gg, {
@@ -3330,6 +3329,57 @@
     syncTransport();
   }
 
+  function buildSoundPane() {
+    var root = document.querySelector('[data-pane=sound]');
+    var p = new U.Panel(root); app.panels.sound = p; p.clear();
+
+    var gp = U.group(root, 'Play');
+    U.check(p, gp, {
+      label: 'Play the sheep', title: 'A — every transform becomes a voice',
+      get: function () { return app.settings.soundOn; },
+      set: function (v) { setSound(v); }
+    });
+    volCtl = U.slider(p, gp, {
+      label: 'Volume', min: 0, max: 1, step: 0.01, reset: 0.6,
+      fmt: function (v) { return Math.round(v * 100) + '%'; },
+      get: function () { return app.settings.soundVolume; },
+      set: setSoundVolume
+    });
+
+    var gm = U.group(root, 'Voices');
+    U.slider(p, gm, {
+      label: 'Drone / notes', min: 0, max: 1, step: 0.01, reset: 0.6,
+      title: 'All the way left is a held chord; all the way right is only the sequence',
+      fmt: function (v) { return v <= 0.001 ? 'drone' : (v >= 0.999 ? 'notes' : Math.round(v * 100) + '% notes'); },
+      get: function () { return app.settings.soundSeqMix; },
+      set: function (v) { app.settings.soundSeqMix = v; saveSettings(); }
+    });
+    U.slider(p, gm, {
+      label: 'Notes / second', min: 1, max: 16, step: 1, reset: 6,
+      title: 'The chaos game runs at this rate; a whole number of steps is fitted to the loop',
+      get: function () { return app.settings.soundSteps; },
+      set: function (v) { app.settings.soundSteps = v | 0; saveSettings(); refreshSoundInfo(); }
+    });
+    U.select(p, gm, {
+      label: 'Scale',
+      options: [{ value: 'auto', label: 'From the palette' }, { value: 'off', label: 'Off — no quantising' }]
+        .concat(SND.SCALE_NAMES.map(function (n) { return { value: n, label: n }; })),
+      get: function () { return app.settings.soundScale; },
+      set: function (v) { app.settings.soundScale = v; saveSettings(); refreshSoundInfo(); }
+    });
+    U.hint(gm, 'The sequence is the chaos game slowed down: the same draw the renderer ' +
+      'makes a million times a second, at a rate you can hear. Which transform may follow ' +
+      'which is the xaos matrix in the Transforms panel, so a sparse one is a riff.');
+
+    var gr = U.group(root, 'This sheep');
+    var sinfo = U.el('div', { class: 'kv' });
+    gr.appendChild(sinfo);
+    p.add({ el: sinfo, update: function () { sinfo.innerHTML = soundReadout(); } });
+    U.hint(gr, 'Nothing on this tab is saved into the sheep — every sheep already carries ' +
+      'everything the sound needs, so a flock saved before any of this existed plays too.');
+  }
+  function refreshSoundInfo() { if (app.panels.sound) app.panels.sound.refresh(); }
+
   /* ---------- tabs --------------------------------------------------------- */
   function bindTabs() {
     var tabs = $('tabs');
@@ -3345,6 +3395,7 @@
       if (name === 'evolve') { buildEvolvePane(); if (!app.pop) seedPopulation(); }
       if (name === 'library') renderLibrary();
       if (name === 'loop') buildLoopPane();
+      if (name === 'sound') buildSoundPane();
       if (name === 'stream') buildStreamPane();
       if (name === 'output') buildOutputPane();
     });
