@@ -68,7 +68,7 @@
     var n = 1024, c = new Float32Array(n);
     for (var i = 0; i < n; i++) {
       var x = (i / (n - 1)) * 2 - 1;
-      c[i] = Math.tanh(x * 2) / Math.tanh(2);
+      c[i] = Math.tanh(x * 1.3) / Math.tanh(1.3);
     }
     return c;
   }
@@ -112,11 +112,22 @@
   }
 
   /* ---------------- one voice ---------------------------------------- */
-  function Voice(ctx, bus, noiseBuf, curve) {
+  function Voice(ctx, bus, noiseBuf, curve, index) {
     var c = this.ctx = ctx;
+    /* Every voice reads the same noise buffer, but from a different place in
+       it. Started together they were sample-for-sample identical, so four
+       noisy voices summed coherently into one hard hiss four times its
+       proper size instead of four independent ones - a good part of what
+       made a busy sheep grate. */
+    this.noiseOffset = (index || 0) * (noiseBuf.duration || 1) / 12;
 
     this.sine = c.createOscillator(); this.sine.type = 'sine';
-    this.saw = c.createOscillator(); this.saw.type = 'sawtooth';
+    // A triangle rather than a sawtooth. Both give the brightness axis
+    // somewhere to go, but a saw carries every harmonic falling off as
+    // 1/n and a triangle only the odd ones falling off as 1/n squared -
+    // which is the difference between a buzz and a flute. The bright end
+    // of the axis should be present, not piercing.
+    this.saw = c.createOscillator(); this.saw.type = 'triangle';
     this.fm = c.createOscillator(); this.fm.type = 'sine';
     this.noise = c.createBufferSource();
     this.noise.buffer = noiseBuf; this.noise.loop = true;
@@ -166,7 +177,7 @@
 
   Voice.prototype.start = function (when) {
     this.sine.start(when); this.saw.start(when);
-    this.fm.start(when); this.noise.start(when);
+    this.fm.start(when); this.noise.start(when, this.noiseOffset);
   };
 
   /* One note. The release always finishes before the next step lands, so
@@ -200,21 +211,32 @@
     param(this.sine.frequency, v.freq, t, tc);
     param(this.saw.frequency, v.freq, t, tc);
     param(this.fm.frequency, v.freq * v.ratio, t, tc);
-    param(this.fmGain.gain, v.inhar * v.freq * 0.7, t, 0.05);
+    /* Deviation scaled by the modulator's own frequency, so the index is
+       constant instead of falling off as the ratio rises - a nine-fold
+       julian used to get almost no FM at all, which was backwards. Much
+       shallower than it was either way: inharmonic sidebands are exactly
+       what reads as metallic. */
+    param(this.fmGain.gain, v.inhar * v.freq * v.ratio * 0.16, t, 0.05);
 
     // brightness crossfades sine into saw and opens the filter with it,
     // so the axis moves the whole spectrum rather than only the waveform
     var b = v.bright;
     param(this.gSine.gain, Math.cos(b * Math.PI * 0.5) * 0.55, t, 0.05);
     param(this.gSaw.gain, Math.sin(b * Math.PI * 0.5) * 0.30, t, 0.05);
-    param(this.gNoise.gain, v.noise * 0.22, t, 0.05);
+    param(this.gNoise.gain, v.noise * 0.07, t, 0.05);
 
-    var d = 1 + v.fold * 5;
+    var d = 1 + v.fold * 1.6;
     param(this.drive.gain, d, t, 0.05);
-    param(this.trim.gain, 1 / (1 + v.fold * 2.6), t, 0.05);
+    param(this.trim.gain, 1 / (1 + v.fold * 0.9), t, 0.05);
 
-    param(this.filt.frequency, Math.min(16000, v.freq * (2.2 + b * 12)), t, 0.05);
-    param(this.filt.Q, Math.min(14, 0.7 + v.reson * 7), t, 0.05);
+    /* The filter tracks the pitch, but nowhere near as far up as it did:
+       at 14 times the fundamental a bright voice was handing over a dozen
+       harmonics, and with a Q approaching 12 the peak sitting on top of
+       them was the whistle. A ceiling in absolute terms as well, because a
+       high voice and a high multiplier used to compound into something
+       genuinely piercing. */
+    param(this.filt.frequency, Math.min(7000, v.freq * (1.5 + b * 6)), t, 0.05);
+    param(this.filt.Q, Math.min(3, 0.5 + v.reson * 1.5), t, 0.05);
     if (this.pan) param(this.pan.pan, v.pan, t, 0.08);
 
     // a negative variation stack draws the shape inside out, so it plays
@@ -355,7 +377,7 @@
     var curve = foldCurve();
     this.voices = [];
     for (var i = 0; i < SND.MAX_VOICES; i++) {
-      this.voices.push(new Voice(c, this.bus, buf, curve));
+      this.voices.push(new Voice(c, this.bus, buf, curve, i));
     }
   }
 
@@ -444,9 +466,9 @@
     // constant-power against the send, so turning glow up does not also
     // turn the whole mix up
     param(this.dry.gain, 1 - rv.send * 0.35, t, 0.15);
-    // 0.87 is as far as the feedback may go: past about 0.9 the four
+    // 0.88 is as far as the feedback may go: past about 0.9 the four
     // loops stop decaying and the reverb runs away
-    var fb = 0.45 + rv.decay * 0.42;
+    var fb = 0.58 + rv.decay * 0.30;
     for (i = 0; i < this.combs.length; i++) this.combs[i].set(rv.size, fb, rv.damp, t);
 
     /* Symmetry is a count of copies. The third tap fades in across two to

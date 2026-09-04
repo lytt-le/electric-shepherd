@@ -427,8 +427,21 @@ out to be statements about a room.
 | camera zoom | filter cutoff: closer is brighter |
 | camera spin | one pass across the stereo field per revolution, in the direction it turns |
 
-Nothing on the Sound tab is saved into a sheep. Volume, the drone/notes balance, note
-rate and scale lock are yours, like the quality settings — the sheep supplies
+### Tone
+
+The voices are built to be sat with rather than listened at: a sine crossfading into a
+triangle rather than a sawtooth, a filter that follows the pitch without climbing far
+above it, a shallow saturator, and notes that take a third of their step to arrive
+instead of snapping on. Reverb has a floor as well as a scale, so there is always
+somewhere for a sheep to sit.
+
+**Tone** decides how sharply the variations are put. It scales the four axes that carry
+edge — brightness, noise, inharmonicity and fold — and opens the master filter with
+them, leaving the pitch mapping and the resonance alone. Low is the default and is
+where it is meant to live; turn it up if a sheep is too soft to read.
+
+Nothing on the Sound tab is saved into a sheep. Tone, volume, the drone/notes balance,
+note rate and scale lock are yours, like the quality settings — the sheep supplies
 everything else.
 
 ### Getting it out

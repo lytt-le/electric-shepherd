@@ -295,7 +295,7 @@
   }
 
   /* ---------------- one transform, read as a voice ------------------- */
-  function describeVoice(xf, i, sumW, harm) {
+  function describeVoice(xf, i, sumW, harm, tone) {
     var d = GEN.decomposeAffine(xf.affine);
     var lx = clamp(finite(d.lx, 1), 1e-4, 64);
     var ly = clamp(finite(d.ly, 1), 1e-4, 64);
@@ -309,7 +309,11 @@
        but different colour should not land on the same note. */
     var s = Math.sqrt(lx * ly);
     var hue = hueAt(harm.lut, xf.color || 0);
-    var raw = clamp(-12 * Math.log(s) / Math.LN2, -12, 48) + hue * 12;
+    /* Four octaves of headroom was too many: a strongly contractive
+       transform landed three or four octaves up, and a high fundamental
+       is most of what makes a voice shrill. Two, and the whole thing
+       sits lower. */
+    var raw = clamp(-12 * Math.log(s) / Math.LN2, -12, 24) + hue * 12 - 5;
     var semis = quantise(raw, harm.scale);
     var freq = clamp(harm.root * Math.pow(2, semis / 12), 25, 9000);
 
@@ -340,6 +344,16 @@
       bright = TIMBRE_DEFAULT[0]; noise = TIMBRE_DEFAULT[1]; inhar = TIMBRE_DEFAULT[2];
       reson = TIMBRE_DEFAULT[3]; fold = TIMBRE_DEFAULT[4];
     }
+
+    /* Tone scales the four axes that carry edge, leaving resonance and the
+       whole of the pitch mapping alone. It is a listener's control rather
+       than part of the reading of the sheep - the variations still say what
+       they say about the picture, this decides how sharply that is put.
+       Low is the default: these are meant to be sat with. */
+    bright *= 0.45 + tone * 0.75;
+    noise *= 0.25 + tone * 1.20;
+    inhar *= 0.15 + tone * 1.30;
+    fold *= 0.30 + tone * 1.00;
 
     var level = sumW > 1e-9 ? (Math.max(0, xf.weight) / sumW) * clamp(xf.opacity, 0, 1) : 0;
 
@@ -435,9 +449,13 @@
       n: n,
       weights: w,
       xaos: xa,
-      // density estimation smooths the sparse outer regions of a picture;
-      // smoothing the front of a note is the same move in time
-      attack: 0.004 + (g.render && g.render.de ? clamp(finite(g.render.deRadius, 1.6), 0, 6) * 0.012 : 0),
+      /* A third of the step spent arriving. It used to be a few
+         milliseconds, which is a pluck: the attack is the single loudest
+         clue a listener gets about whether a sound is soft or sharp, and a
+         fast one on a bright voice is a click with a note behind it.
+         Density estimation smooths the sparse outer regions of a picture,
+         so it lengthens this further - the same move in time. */
+      attack: dur * (0.3 + (g.render && g.render.de ? clamp(finite(g.render.deRadius, 1.6), 0, 6) * 0.02 : 0)),
       // always finished before the next step lands, so a note never has to
       // be cut off - which is where clicks come from
       hold: dur * 0.9
@@ -449,7 +467,7 @@
      how much sequence against how much drone. They are arguments rather
      than module state so this stays a pure function of its inputs, which
      is what lets an offline render call it on a schedule of t. */
-  var DEFAULT_OPTS = { scale: 'auto', steps: 6, seqMix: 0.6 };
+  var DEFAULT_OPTS = { scale: 'auto', steps: 3, seqMix: 0.45, tone: 0.3 };
 
   function describe(g, opts) {
     opts = opts || DEFAULT_OPTS;
@@ -460,10 +478,11 @@
     var sumW = 0, i;
     for (i = 0; i < xf.length && i < MAX_VOICES; i++) sumW += Math.max(0, xf[i].weight || 0);
 
+    var tone = clamp(opts.tone === undefined ? 0.3 : opts.tone, 0, 1);
     var harm = harmonyOf(g.palette, opts.scale);
     var voices = [];
     for (i = 0; i < MAX_VOICES; i++) {
-      voices.push(i < xf.length ? describeVoice(xf[i], i, sumW, harm) : silentVoice(i));
+      voices.push(i < xf.length ? describeVoice(xf[i], i, sumW, harm, tone) : silentVoice(i));
     }
 
     /* The bus. Only the parts that are genuinely a tone curve or a
@@ -474,14 +493,15 @@
        master filter, which is enough to make a sheep with one sound
        different from a sheep without. */
     var zoom = clamp(finite(cam.zoom, 0.45), 0.02, 40);
-    var cutoff = 1400 * Math.pow(zoom / 0.45, 0.55);
+    var cutoff = 1500 * Math.pow(zoom / 0.45, 0.45);
     if (g.final) {
-      var fv = describeVoice(g.final, -1, 1, harm);
+      var fv = describeVoice(g.final, -1, 1, harm, tone);
       cutoff *= 0.65 + fv.bright * 0.9;
     }
     // the vignette darkens the edges of the picture; it rolls off the top
     // of the spectrum in the same spirit
-    cutoff *= 1 - clamp(finite(r.vignette, 0), 0, 1) * 0.45;
+    cutoff *= 1 - clamp(finite(r.vignette, 0) / 1.5, 0, 1) * 0.45;
+    cutoff *= 0.6 + tone * 0.9;
 
     /* Everything below is quoted against the slider it comes from, using
        that slider's real range rather than a guessed one - glow runs
@@ -498,7 +518,9 @@
         // brightness is the exposure of the picture, so it is the level
         // of the mix; it is quoted around 3.2, which is unity here
         gain: clamp(finite(r.brightness, 3.2) / 3.2, 0.25, 2.2),
-        cutoff: clamp(cutoff, 160, 14000),
+        // 14kHz let the whole top end through whenever the camera was
+        // zoomed in; there is nothing up there worth hearing here
+        cutoff: clamp(cutoff, 160, 6000),
         // grain is literally a noise floor in both media
         hiss: clamp(finite(r.grain, 0) / 0.2, 0, 1) * 0.05,
 
@@ -508,7 +530,9 @@
            one means more of it and a longer tail; radius is how far it
            spreads, which is room size and how dark the tail gets. */
         reverb: {
-          send: clamp(finite(r.glow, 0.25) / 1.5, 0, 1) * 0.55,
+          // a floor as well as a scale: an ambient sound wants somewhere
+          // to sit even on a sheep whose glow is turned right down
+          send: 0.16 + clamp(finite(r.glow, 0.25) / 1.5, 0, 1) * 0.5,
           size: clamp(finite(r.glowRadius, 2) / 8, 0.05, 1),
           decay: clamp(1 - finite(r.glowThreshold, 0.55) / 1.5, 0, 1),
           damp: clamp(finite(r.glowRadius, 2) / 8, 0, 1)
@@ -532,7 +556,9 @@
            structure; a higher threshold keeps the ramp near black linear,
            so less of the quiet material gets lifted. */
         comp: {
-          ratio: clamp(1 + (finite(r.gamma, 4) - 1) * 0.8, 1, 8),
+          // heavy compression is what makes a mix dense and tiring; the
+          // curve still tracks gamma, it just does not squeeze as hard
+          ratio: clamp(1 + (finite(r.gamma, 4) - 1) * 0.3, 1, 3.2),
           threshold: -20 + clamp(finite(r.gammaThreshold, 0.02) / 0.2, 0, 1) * 14
         },
 

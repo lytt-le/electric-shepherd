@@ -23,7 +23,8 @@
     endlessAvoidRepeat: true,
     streamSource: 'flock', streamDriftOn: false, streamDrift: 3, streamDriftStrength: 0.22, streamDriftTries: 3,
     streamDriftHold: 0,
-    soundOn: false, soundVolume: 0.6, soundSeqMix: 0.6, soundSteps: 6, soundScale: 'auto',
+    soundOn: false, soundVolume: 0.6, soundSeqMix: 0.45, soundSteps: 3, soundScale: 'auto',
+    soundTone: 0.3, soundCalmed: false,
     exportScale: 2, exportPasses: 900, exportSize: 'view', exportW: 1920, exportH: 1080,
     recordFps: 30, recordMbps: 12,
     renderSource: 'flock', renderSeconds: 20, renderW: 1920, renderH: 1080,
@@ -212,7 +213,8 @@
     return {
       scale: app.settings.soundScale,
       steps: app.settings.soundSteps,
-      seqMix: app.settings.soundSeqMix
+      seqMix: app.settings.soundSeqMix,
+      tone: app.settings.soundTone
     };
   }
   function syncSoundBtn() {
@@ -3533,6 +3535,13 @@
 
     var gm = U.group(root, 'Voices');
     U.slider(p, gm, {
+      label: 'Tone', min: 0, max: 1, step: 0.01, reset: 0.3,
+      title: 'How sharply the variations are put. Low is soft and rounded; high brings back the edge, the noise and the metallic sidebands.',
+      fmt: function (v) { return v <= 0.02 ? 'softest' : (v >= 0.98 ? 'sharpest' : Math.round(v * 100) + '%'); },
+      get: function () { return app.settings.soundTone; },
+      set: function (v) { app.settings.soundTone = v; saveSettings(); }
+    });
+    U.slider(p, gm, {
       label: 'Drone / notes', min: 0, max: 1, step: 0.01, reset: 0.6,
       title: 'All the way left is a held chord; all the way right is only the sequence',
       fmt: function (v) { return v <= 0.001 ? 'drone' : (v >= 0.999 ? 'notes' : Math.round(v * 100) + '% notes'); },
@@ -3629,6 +3638,19 @@
     if (!app.settings.overlayMigrated) {
       app.settings.showOverlay = false;
       app.settings.overlayMigrated = true;
+      saveSettings();
+    }
+
+    /* The first sound settings were tuned by arithmetic rather than by ear,
+       and by ear they were sharp: too many notes, too much sequence, no
+       tone control at all. Anyone who tried it already has those values
+       saved, and a changed default would never reach them - so move them
+       once, exactly as drift and the overlay were moved. */
+    if (!app.settings.soundCalmed) {
+      app.settings.soundSteps = DEFAULT_SETTINGS.soundSteps;
+      app.settings.soundSeqMix = DEFAULT_SETTINGS.soundSeqMix;
+      app.settings.soundTone = DEFAULT_SETTINGS.soundTone;
+      app.settings.soundCalmed = true;
       saveSettings();
     }
 
