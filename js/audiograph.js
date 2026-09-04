@@ -210,6 +210,7 @@
     var tc = v.glide;
     param(this.sine.frequency, v.freq, t, tc);
     param(this.saw.frequency, v.freq, t, tc);
+    if (this.saw.detune) param(this.saw.detune, v.detune, t, 0.2);
     param(this.fm.frequency, v.freq * v.ratio, t, tc);
     /* Deviation scaled by the modulator's own frequency, so the index is
        constant instead of falling off as the ratio rises - a nine-fold

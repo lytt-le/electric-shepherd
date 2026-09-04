@@ -427,6 +427,29 @@ out to be statements about a room.
 | camera zoom | filter cutoff: closer is brighter |
 | camera spin | one pass across the stereo field per revolution, in the direction it turns |
 
+### Every sheep sets its own pace
+
+The controls on the Sound tab are a centre, not a value. Each sheep reads three things
+about how it is built and moves them:
+
+| Reading | What it moves |
+|---|---|
+| how many transforms it has | how busy it is — note rate, and how spacious the attack |
+| how long its loop is | a sheep that breathes slowly does not play fast, and holds a longer tail |
+| how many variations it carries, and whether it has a final transform | how much of it is notes rather than held tone |
+
+The palette's own hue variance sets the stereo width, so a gradient that travels right
+round the wheel is wide and a single-hue one is narrow. Which readings to use was
+measured rather than guessed — the obvious one, how evenly the transforms share the
+draw, turns out to sit between 0.96 and 1.00 on almost every random sheep, which is a
+constant with a rounding error.
+
+One thing worth knowing if a flock still sounds too alike: **Kept across new sheep** at
+the top of the Image tab, which is on by default, freezes the whole Image tab across
+everything you generate — and half the mixing desk with it. Switching it to *Reset with
+each new sheep* gives every sheep its own glow, symmetry and gamma, and so its own room
+and stereo image.
+
 ### Tone
 
 The voices are built to be sat with rather than listened at: a sine crossfading into a

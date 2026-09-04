@@ -287,10 +287,55 @@
       // move when the palette rotates: rotating turns the colours without
       // changing the sheep's key. What rotate does move is each voice's own
       // hue lookup below, which is the transposition.
-      root: 65.406 * Math.pow(2, hue),
+      // most of two octaves rather than one, so two sheep are less likely
+      // to arrive in the same key
+      root: 52 * Math.pow(2, hue * 1.8),
       spread: spread,
       scaleName: name === 'off' ? 'off' : (SCALES[name] ? name : 'pentatonic'),
       scale: name === 'off' ? null : (SCALES[name] || SCALES.pentatonic)
+    };
+  }
+
+  /* ---------------- how a sheep is built ------------------------------
+     The look settings turned out to be a poor source of variety: a new
+     random sheep only randomises six of the twenty-four fields on the
+     Image tab, and with "kept across new sheep" on - which is the default
+     - even those are frozen. So the parts of the sound that should differ
+     from sheep to sheep read the sheep's *structure* instead, which is
+     never constant and is what actually makes one flame unlike another.
+
+     All three are continuous under interpolation, so they move smoothly
+     across a morph rather than stepping. */
+
+  /* Which of these to use was measured rather than guessed, and the first
+     guess was wrong: weight entropy sounded like the obvious reading of
+     "how busy is this sheep" and turns out to sit between 0.96 and 1.00 on
+     almost every random genome - a constant with a rounding error. These
+     three genuinely differ from sheep to sheep.
+
+       busy   transform count, 2 to 5 on a random sheep and up to 12 by
+              hand. More transforms is more to say.
+       slow   loop length, 8 to 20 seconds. A sheep that breathes slowly
+              should not play fast.
+       artic  how many variations a transform carries, plus whether there
+              is a final transform. Complexity, so how spoken it is.
+
+     All three are stable across a morph: transform counts are held equal
+     by the ghosting, and loop length is already eased between sheep. */
+  function shapeOf(g, xf, n) {
+    var i, vc = 0;
+    for (i = 0; i < n; i++) {
+      var vs = xf[i].vars || [];
+      // counted with a ramp rather than a threshold: a variation-weight
+      // channel that swings through zero would otherwise tick the count up
+      // and down mid-loop and take the tempo with it
+      for (var k = 0; k < vs.length; k++) vc += clamp(Math.abs(vs[k].w || 0) * 12, 0, 1);
+    }
+    var mvc = n ? vc / n : 1;
+    return {
+      busy: clamp((n - 2) / 6, 0, 1),
+      slow: clamp((GEN.loopSeconds(g) - 8) / 12, 0, 1),
+      artic: clamp((mvc - 1) / 2, 0, 1) * 0.7 + (g.final ? 0.3 : 0)
     };
   }
 
@@ -328,13 +373,20 @@
       var a = Math.abs(sv.w || 0);
       if (a < 1e-6) continue;
       var row = timbreRow(sv.v);
-      tw += a; signed += sv.w;
-      bright += a * row[0]; noise += a * row[1]; inhar += a * row[2];
-      reson += a * row[3]; fold += a * row[4];
+      /* Squared, so the loudest variation in a stack dominates rather than
+         being averaged in with the rest. A plain mean over eight rows
+         converges on the mean of the whole table, which is exactly why
+         every sheep was arriving at the same timbre: the more variations
+         a transform had, the more ordinary it sounded. Squaring is still
+         perfectly continuous in the weights, so a morph is unaffected. */
+      var em = a * a;
+      tw += em; signed += sv.w;
+      bright += em * row[0]; noise += em * row[1]; inhar += em * row[2];
+      reson += em * row[3]; fold += em * row[4];
       // the FM ratio comes from whichever variation dominates the stack
       var rp = RATIO_PARAM[sv.v];
-      if (rp !== undefined && a > best) {
-        best = a;
+      if (rp !== undefined && em > best) {
+        best = em;
         ratio = clamp(Math.round(Math.abs((sv.p && sv.p[rp]) || 2)), 1, 9);
       }
     }
@@ -350,6 +402,14 @@
        than part of the reading of the sheep - the variations still say what
        they say about the picture, this decides how sharply that is put.
        Low is the default: these are meant to be sat with. */
+    /* Pulled away from the middle before tone touches it. The table's rows
+       cluster around 0.5, and a mean of a few of them clusters harder, so
+       without this every sheep arrives at much the same brightness -
+       measured at a spread of 0.15 across a whole flock, which is the
+       "they all sound the same" complaint in one number. */
+    bright = clamp(0.45 + (bright - 0.45) * 1.7, 0, 1);
+    fold = clamp(0.25 + (fold - 0.25) * 1.6, 0, 1);
+
     bright *= 0.45 + tone * 0.75;
     noise *= 0.25 + tone * 1.20;
     inhar *= 0.15 + tone * 1.30;
@@ -366,6 +426,10 @@
       level: clamp(level, 0, 1),
       freq: freq,
       pan: clamp(Math.sin(finite(d.ax, 0)), -1, 1),
+      // a stretched transform beats against itself: the two oscillators
+      // pull apart by up to a third of a semitone, which is richness
+      // rather than detuning you would call out as wrong
+      detune: clamp(aniso * 14, 0, 34),
       // colour speed is how fast a point settles into its colour, so it is
       // how fast a voice settles onto its pitch
       glide: 0.01 + clamp(finite(xf.colorSpeed, 0.5), 0, 1) * 0.35,
@@ -381,7 +445,7 @@
 
   function silentVoice(i) {
     return {
-      i: i, on: false, invert: false, level: 0, freq: 110, pan: 0, glide: 0.1, hue: 0,
+      i: i, on: false, invert: false, level: 0, freq: 110, pan: 0, glide: 0.1, hue: 0, detune: 0,
       bright: 0.3, noise: 0, inhar: 0, reson: 0.1, fold: 0, ratio: 1
     };
   }
@@ -403,9 +467,15 @@
      in the engine, because a pure function cannot carry a walk. The seed
      travels with it so the walk is reproducible: the same sheep plays the
      same riff, on any machine, today and next year. */
-  function sequenceOf(g, xf, sumW, opts, loopSecs) {
+  function sequenceOf(g, xf, sumW, opts, loopSecs, sh) {
     var n = Math.min(xf.length, MAX_VOICES);
-    var mix = clamp(finite(opts.seqMix, 0.6), 0, 1);
+    /* The settings are a centre, not a value. Every sheep used to play at
+       exactly the rate the slider said, with exactly the same balance and
+       the same envelope, which made a flock of them sound like one patch
+       being re-tuned. How evenly the transforms share the draw decides how
+       busy this sheep is; how fast its colours settle decides how much of
+       it is notes rather than held tone. */
+    var mix = clamp(finite(opts.seqMix, 0.6) * (0.55 + sh.artic * 0.9), 0, 1);
     if (!n || mix < 0.001) return { on: false, mix: 0, steps: 1, rate: 1, seed: 0, n: 0, weights: null, xaos: null, attack: 0.01, hold: 0.1 };
 
     var w = [], i, j;
@@ -429,7 +499,7 @@
     /* Whole steps per loop, for the same reason animator cycles are whole
        numbers: a fraction would not close. With no loop to fit, the rate
        is simply the rate asked for. */
-    var per = clamp(finite(opts.steps, 6), 1, 16);
+    var per = clamp(finite(opts.steps, 6) * (0.55 + sh.busy * 1.3) * (1.25 - sh.slow * 0.5), 0.4, 20);
     var steps, rate;
     if (loopSecs > 0) {
       steps = Math.max(1, Math.min(256, Math.round(loopSecs * per)));
@@ -455,7 +525,9 @@
          fast one on a bright voice is a click with a note behind it.
          Density estimation smooths the sparse outer regions of a picture,
          so it lengthens this further - the same move in time. */
-      attack: dur * (0.3 + (g.render && g.render.de ? clamp(finite(g.render.deRadius, 1.6), 0, 6) * 0.02 : 0)),
+      // a sparse sheep takes its time arriving; a busy one is more spoken
+      attack: dur * clamp(0.5 - sh.busy * 0.3 +
+        (g.render && g.render.de ? clamp(finite(g.render.deRadius, 1.6), 0, 6) * 0.02 : 0), 0.14, 0.55),
       // always finished before the next step lands, so a note never has to
       // be cut off - which is where clicks come from
       hold: dur * 0.9
@@ -479,11 +551,15 @@
     for (i = 0; i < xf.length && i < MAX_VOICES; i++) sumW += Math.max(0, xf[i].weight || 0);
 
     var tone = clamp(opts.tone === undefined ? 0.3 : opts.tone, 0, 1);
+    var nx = Math.min(xf.length, MAX_VOICES);
+    var sh = shapeOf(g, xf, nx);
     var harm = harmonyOf(g.palette, opts.scale);
-    var voices = [];
+    var voices = [], lit = 0, meanBright = 0;
     for (i = 0; i < MAX_VOICES; i++) {
       voices.push(i < xf.length ? describeVoice(xf[i], i, sumW, harm, tone) : silentVoice(i));
+      if (voices[i].on) { lit++; meanBright += voices[i].bright; }
     }
+    meanBright = lit ? meanBright / lit : 0.3;
 
     /* The bus. Only the parts that are genuinely a tone curve or a
        framing decision are wired at this stage; glow, symmetry and
@@ -502,6 +578,9 @@
     // of the spectrum in the same spirit
     cutoff *= 1 - clamp(finite(r.vignette, 0) / 1.5, 0, 1) * 0.45;
     cutoff *= 0.6 + tone * 0.9;
+    // and open it for a sheep whose variations are bright ones, so the
+    // master filter is not sitting in the same place on every sheep
+    cutoff *= 0.7 + meanBright * 1.0;
 
     /* Everything below is quoted against the slider it comes from, using
        that slider's real range rather than a guessed one - glow runs
@@ -532,9 +611,13 @@
         reverb: {
           // a floor as well as a scale: an ambient sound wants somewhere
           // to sit even on a sheep whose glow is turned right down
-          send: 0.16 + clamp(finite(r.glow, 0.25) / 1.5, 0, 1) * 0.5,
-          size: clamp(finite(r.glowRadius, 2) / 8, 0.05, 1),
-          decay: clamp(1 - finite(r.glowThreshold, 0.55) / 1.5, 0, 1),
+          // glow is frozen across new sheep for most people, so how held
+          // rather than spoken the sheep is carries the rest of it
+          send: (0.16 + clamp(finite(r.glow, 0.25) / 1.5, 0, 1) * 0.5) * (0.7 + (1 - sh.artic) * 0.7),
+          // glowRadius and glowThreshold are left at their defaults by every
+          // random sheep, so the room would be the same room every time
+          size: clamp(finite(r.glowRadius, 2) / 8 * (0.5 + (1 - sh.busy) * 1.4), 0.05, 1),
+          decay: clamp((1 - finite(r.glowThreshold, 0.55) / 1.5) * (0.6 + sh.slow * 0.7), 0, 1),
           damp: clamp(finite(r.glowRadius, 2) / 8, 0, 1)
         },
 
@@ -545,7 +628,12 @@
            cannot be averaged, so the engine crossfades it exactly as the
            morph code crossfades the two symmetry orders. */
         chorus: {
-          width: clamp(finite(r.saturation, 1) / 2.5, 0, 1),
+          /* Saturation is the honest reading, but it is 1.0 on every random
+             sheep, so on its own it made the stereo image identical
+             everywhere. The palette's own hue variance carries the rest:
+             a gradient that travels right round the wheel is wide, a
+             single-hue one is narrow, which is the same statement. */
+          width: clamp(finite(r.saturation, 1) / 2.5 * (0.5 + harm.spread * 1.1), 0, 1),
           depth: 0.15 + clamp(finite(r.vibrancy, 1), 0, 1) * 0.35,
           copies: clamp(finite(r.symmetry, 1), 1, 16),
           mirror: r.symmetryMirror ? 1 : 0
@@ -570,7 +658,7 @@
         }
       },
       voices: voices,
-      sequence: sequenceOf(g, xf, sumW, opts, GEN.loopSeconds(g))
+      sequence: sequenceOf(g, xf, sumW, opts, GEN.loopSeconds(g), sh)
     };
   }
 
