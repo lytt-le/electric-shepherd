@@ -28,7 +28,7 @@
     recordFps: 30, recordMbps: 12,
     renderSource: 'flock', renderSeconds: 20, renderW: 1920, renderH: 1080,
     renderFps: 30, renderPasses: 400, renderSS: 2, renderShutter: 4,
-    renderFormat: 'vp09.00.10.08', renderMbps: 24
+    renderFormat: 'vp09.00.10.08', renderMbps: 24, renderSound: true
   };
 
   // No settings saved yet means nobody has ever picked a quality level here -
@@ -2477,6 +2477,154 @@
     toast('Rendering ' + totals.frames + ' frames at ' + w + '×' + h);
   }
 
+  /* ---------------- offline audio ---------------------------------------
+     This is where "the sound is a pure function of the genome" stops being
+     a tidy idea and starts paying for itself. buildTimeline/genomeAt
+     already answer "which sheep, at what point in its loop, at second t"
+     for any t the video needs; the same call answers it for the audio, so
+     the soundtrack is evaluated over [0, duration] rather than recorded
+     off a live performance. It renders faster than real time, it does not
+     care how slow the video was, and running it twice gives the same file.
+
+     The whole performance has to be scheduled up front because an
+     OfflineAudioContext has no clock to follow, which is what the `when`
+     argument on apply() is for. */
+  var AUDIO_RATE = 48000;
+  var AUDIO_CTRL = 1 / 25;          // the same control rate the live view uses
+
+  function renderAudioBuffer(j) {
+    var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OAC || !window.FlameAudio) return null;
+    var secs = j.totalFrames / j.fps;
+    if (!(secs > 0)) return null;
+
+    var ctx, audio;
+    try {
+      ctx = new OAC(2, Math.ceil(secs * AUDIO_RATE), AUDIO_RATE);
+      audio = new window.FlameAudio(ctx);
+    } catch (e) { return null; }
+
+    audio.start(0);
+    audio.setVolume(1, 0);          // the file is mastered, not monitored
+    audio.setActive(true, 0);
+
+    var opts = soundOpts();
+    for (var t = 0; t < secs; t += AUDIO_CTRL) {
+      var g = R.genomeAt(j.timeline, t);
+      if (!g) continue;
+      audio.apply(SND.describe(g, opts), true, t);
+    }
+    // and land silent rather than being cut off mid-note
+    audio.setActive(false, Math.max(0, secs - 0.25));
+
+    return ctx.startRendering();
+  }
+
+  /* 16-bit PCM WAV, for the browsers with no AudioEncoder. Better to hand
+     someone a soundtrack they can mux themselves than to quietly drop it. */
+  function wavBlob(buf) {
+    var n = buf.length, ch = Math.min(2, buf.numberOfChannels);
+    var bytes = 44 + n * ch * 2;
+    var v = new DataView(new ArrayBuffer(bytes)), o = 0;
+    function str(x) { for (var i = 0; i < x.length; i++) v.setUint8(o++, x.charCodeAt(i)); }
+    function u32(x) { v.setUint32(o, x, true); o += 4; }
+    function u16(x) { v.setUint16(o, x, true); o += 2; }
+    str('RIFF'); u32(bytes - 8); str('WAVE');
+    str('fmt '); u32(16); u16(1); u16(ch); u32(buf.sampleRate);
+    u32(buf.sampleRate * ch * 2); u16(ch * 2); u16(16);
+    str('data'); u32(n * ch * 2);
+    var data = [];
+    for (var c = 0; c < ch; c++) data.push(buf.getChannelData(c));
+    for (var i = 0; i < n; i++) {
+      for (var k = 0; k < ch; k++) {
+        var x = Math.max(-1, Math.min(1, data[k][i]));
+        v.setInt16(o, x < 0 ? x * 32768 : x * 32767, true); o += 2;
+      }
+    }
+    return new Blob([v.buffer], { type: 'audio/wav' });
+  }
+
+  /* AudioBuffer -> Opus, in 20ms blocks, which is Opus's own frame size. */
+  function encodeOpus(buf) {
+    return new Promise(function (resolve, reject) {
+      if (typeof AudioEncoder === 'undefined') { resolve(null); return; }
+      var chunks = [], description = null;
+      var enc;
+      try {
+        enc = new AudioEncoder({
+          output: function (chunk, meta) {
+            // the encoder hands back the OpusHead the container needs; far
+            // better to carry its word for it than to reconstruct one
+            if (meta && meta.decoderConfig && meta.decoderConfig.description && !description) {
+              var d = meta.decoderConfig.description;
+              description = new Uint8Array(d.buffer ? d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) : d);
+            }
+            var b = new Uint8Array(chunk.byteLength);
+            chunk.copyTo(b);
+            chunks.push({ data: b, timeMs: Math.round(chunk.timestamp / 1000) });
+          },
+          error: function (e) { reject(e); }
+        });
+        enc.configure({
+          codec: 'opus', sampleRate: AUDIO_RATE,
+          numberOfChannels: 2, bitrate: 128000
+        });
+      } catch (e) { resolve(null); return; }
+
+      var BLK = 960;                       // 20ms at 48k
+      var L = buf.getChannelData(0);
+      var Rc = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
+      try {
+        for (var i = 0; i < buf.length; i += BLK) {
+          var n = Math.min(BLK, buf.length - i);
+          // f32-planar wants the channels end to end in one array
+          var planar = new Float32Array(n * 2);
+          planar.set(L.subarray(i, i + n), 0);
+          planar.set(Rc.subarray(i, i + n), n);
+          enc.encode(new AudioData({
+            format: 'f32-planar', sampleRate: AUDIO_RATE,
+            numberOfFrames: n, numberOfChannels: 2,
+            timestamp: Math.round(i / AUDIO_RATE * 1e6),
+            data: planar
+          }));
+        }
+      } catch (e) { try { enc.close(); } catch (e2) { } resolve(null); return; }
+
+      enc.flush().then(function () {
+        try { enc.close(); } catch (e) { }
+        resolve(chunks.length ? {
+          chunks: chunks, sampleRate: AUDIO_RATE, channels: 2,
+          preSkip: description ? (description[10] | (description[11] << 8)) : 312,
+          description: description
+        } : null);
+      }).catch(reject);
+    });
+  }
+
+  /* Kicked off as soon as the timeline exists, so it runs alongside the
+     video rather than after it. Never fatal: a render that loses its
+     soundtrack is still a render, and says so. */
+  function startAudioRender(j) {
+    j.audio = null; j.audioWav = null; j.audioNote = '';
+    if (!app.settings.renderSound || !j.wantVideo) return;
+    var p;
+    try { p = renderAudioBuffer(j); } catch (e) { p = null; }
+    if (!p) { j.audioNote = ' (no soundtrack — this browser has no offline audio)'; return; }
+    j.audioReady = p.then(function (buf) {
+      if (typeof AudioEncoder === 'undefined') {
+        j.audioWav = wavBlob(buf);
+        j.audioNote = ' — soundtrack saved separately as .wav';
+        return null;
+      }
+      return encodeOpus(buf).then(function (a) {
+        if (a) j.audio = a;
+        else { j.audioWav = wavBlob(buf); j.audioNote = ' — soundtrack saved separately as .wav'; }
+      });
+    }).catch(function (e) {
+      j.audioNote = ' (soundtrack failed: ' + e.message + ')';
+    });
+  }
+
   function renderSetupEncoder(j) {
     if (!j.wantVideo) { j.zip = new window.FlameRender.ZipWriter(); return; }
     j.encoder = new VideoEncoder({
@@ -2545,6 +2693,8 @@
       });
       if (!j.timeline.segments.length) { cancelRender('Nothing to render'); return; }
       try { renderSetupEncoder(j); } catch (e) { cancelRender('Could not start encoder: ' + e.message); return; }
+      // the soundtrack renders alongside the video rather than after it
+      startAudioRender(j);
       j.phase = 'render';
       return;
     }
@@ -2657,7 +2807,7 @@
       renderStatus('Done — ' + j.totalFrames + ' frames in ' + fmtDuration(secs) +
         ' (' + fmtBytes(blob.size) + ')');
       renderBar(1);
-      toast('Render finished: ' + fmtDuration(secs));
+      toast('Render finished: ' + fmtDuration(secs) + (j.audioNote || (j.audio ? ', with sound' : '')));
     }
 
     function writeFile(blob, ext) {
@@ -2691,16 +2841,26 @@
         clearInterval(poll);
         if (j.cancelled) return;
         try { j.encoder.close(); } catch (e) { }
-        renderStatus('Encoding complete — muxing ' + j.chunks.length + ' frames…');
-        setTimeout(function () {
+        renderStatus(j.audioReady
+          ? 'Encoding complete — finishing the soundtrack…'
+          : 'Encoding complete — muxing ' + j.chunks.length + ' frames…');
+        // the audio has been rendering all along; usually it is already
+        // done and this resolves on the spot
+        (j.audioReady || Promise.resolve()).then(function () {
           if (j.cancelled) return;
-          var blob = R.muxWebM(j.chunks, {
-            width: j.w, height: j.h,
-            codec: app.settings.renderFormat,
-            frameDurMs: 1000 / j.fps
-          });
-          writeFile(blob, '.webm');
-        }, 60);
+          renderStatus('Muxing ' + j.chunks.length + ' frames…');
+          setTimeout(function () {
+            if (j.cancelled) return;
+            var blob = R.muxWebM(j.chunks, {
+              width: j.w, height: j.h,
+              codec: app.settings.renderFormat,
+              frameDurMs: 1000 / j.fps,
+              audio: j.audio
+            });
+            if (j.audioWav) LIB.downloadBlob(j.audioWav, 'electric-shepherd-' + Date.now().toString(36) + '.wav');
+            writeFile(blob, '.webm');
+          }, 60);
+        });
       }).catch(function (e) {
         clearInterval(poll);
         if (!j.cancelled) cancelRender('Encoding failed: ' + e.message);
@@ -2838,6 +2998,15 @@
         get: function () { return app.settings.renderMbps; },
         set: function (v) { app.settings.renderMbps = v | 0; saveSettings(); updateRenderEstimate(); }
       });
+      U.check(p, gf, {
+        label: 'Soundtrack', note: 'render the sheep as audio too',
+        title: 'The sound is a function of the genome, so it is rendered over the same timeline as the picture rather than recorded — it does not matter how slow the render was.',
+        get: function () { return app.settings.renderSound; },
+        set: function (v) { app.settings.renderSound = v; saveSettings(); }
+      });
+      if (app.settings.renderSound && typeof AudioEncoder === 'undefined') {
+        U.hint(gf, 'This browser has no AudioEncoder, so the soundtrack will be saved beside the video as a .wav rather than muxed into it.');
+      }
     }
 
     var gq = U.group(root, 'Quality');

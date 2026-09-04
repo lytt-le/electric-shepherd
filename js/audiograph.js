@@ -227,6 +227,9 @@
   /* ---------------- the instrument ------------------------------------ */
   function FlameAudio(ctx) {
     this.ctx = ctx;
+    // an OfflineAudioContext is told to render and then runs to the end on
+    // its own; there is nothing to suspend and no clock to read
+    this.offline = !!ctx.startRendering;
     this.started = false;
     this.active = false;
     this.volume = 1;
@@ -356,19 +359,19 @@
     }
   }
 
-  FlameAudio.prototype.start = function () {
+  FlameAudio.prototype.start = function (when) {
     if (this.started) return;
     this.started = true;
-    var t = this.ctx.currentTime;
+    var t = when === undefined ? this.ctx.currentTime : when;
     for (var i = 0; i < this.voices.length; i++) this.voices[i].start(t);
     this.hiss.start(t);
     this.chLfo.start(t);
     this.panLfo.start(t);
   };
 
-  FlameAudio.prototype.setVolume = function (v) {
+  FlameAudio.prototype.setVolume = function (v, when) {
     this.volume = Math.max(0, Math.min(1, v));
-    param(this.vol.gain, this.volume, this.ctx.currentTime, 0.03);
+    param(this.vol.gain, this.volume, when === undefined ? this.ctx.currentTime : when, 0.03);
   };
 
   /* A tap for the recorder, made once and left connected. It sits after
@@ -387,14 +390,16 @@
   /* On and off, without tearing anything down. The fade comes first and the
      context is suspended behind it, so switching off is a fade rather than
      a click and switching back on picks up where it left off. */
-  FlameAudio.prototype.setActive = function (on) {
+  FlameAudio.prototype.setActive = function (on, when) {
     var self = this;
     this.active = !!on;
+    var now = when === undefined ? this.ctx.currentTime : when;
     if (on) {
       if (this.ctx.state === 'suspended' && this.ctx.resume) this.ctx.resume();
-      param(this.gate.gain, 1, this.ctx.currentTime, 0.05);
+      param(this.gate.gain, 1, now, 0.05);
     } else {
-      param(this.gate.gain, 0, this.ctx.currentTime, 0.04);
+      param(this.gate.gain, 0, now, 0.04);
+      if (this.offline) return;      // nothing to idle: it is already a file
       clearTimeout(this.idleTimer);
       this.idleTimer = setTimeout(function () {
         if (!self.active && self.ctx.state === 'running' && self.ctx.suspend) self.ctx.suspend();
@@ -405,8 +410,15 @@
   /* `gate` is the app's play state: a frozen picture makes no sound. The
      voices are gated rather than stopped, so resuming is a fade rather
      than a restart and the oscillators keep their phase. */
-  FlameAudio.prototype.apply = function (spec, gate) {
-    var t = this.ctx.currentTime;
+  /* `when` is the one concession the engine makes to being rendered
+     offline. An OfflineAudioContext's currentTime sits at zero until it
+     is told to render and then runs to the end on its own, so there is no
+     clock to read: the whole performance has to be scheduled in advance.
+     Passing the time in lets the offline path walk t from 0 to the end of
+     the timeline and schedule every ramp and every note at its real
+     moment, using this same code rather than a second copy of it. */
+  FlameAudio.prototype.apply = function (spec, gate, when) {
+    var t = when === undefined ? this.ctx.currentTime : when;
     var m = spec.master;
     param(this.busFilt.frequency, m.cutoff, t, 0.06);
     param(this.master.gain, m.gain, t, 0.06);
