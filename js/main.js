@@ -6,6 +6,7 @@
 
   var GEN = window.FlameGenome, VAR = window.FlameVariations, PAL = window.FlamePalette;
   var EVO = window.FlameEvolve, LIB = window.FlameLibrary, U = window.UI;
+  var SND = window.FlameSound;
 
   var DEFAULT_SETTINGS = {
     points: 256, passes: 14, ss: 2, resScale: 1, autoQuality: true,
@@ -22,11 +23,13 @@
     endlessAvoidRepeat: true,
     streamSource: 'flock', streamDriftOn: false, streamDrift: 3, streamDriftStrength: 0.22, streamDriftTries: 3,
     streamDriftHold: 0,
+    soundOn: false, soundVolume: 0.6, soundSeqMix: 0.45, soundSteps: 3, soundScale: 'auto',
+    soundTone: 0.3, soundCalmed: false,
     exportScale: 2, exportPasses: 900, exportSize: 'view', exportW: 1920, exportH: 1080,
     recordFps: 30, recordMbps: 12,
     renderSource: 'flock', renderSeconds: 20, renderW: 1920, renderH: 1080,
     renderFps: 30, renderPasses: 400, renderSS: 2, renderShutter: 4,
-    renderFormat: 'vp09.00.10.08', renderMbps: 24
+    renderFormat: 'vp09.00.10.08', renderMbps: 24, renderSound: true
   };
 
   // No settings saved yet means nobody has ever picked a quality level here -
@@ -58,6 +61,9 @@
     // rewrites the genome every frame, so a camera edit there would be wiped
     // instantly; this rides on top instead and survives sheep changes.
     view: { panX: 0, panY: 0, zoom: 1, rot: 0 },
+    // the synthesiser, built on first use - an AudioContext may only be
+    // created from a user gesture, so this stays null until asked for
+    audio: null,
     recorder: null,
     recChunks: [],
     busy: null,
@@ -134,6 +140,131 @@
     var on = !!app.settings.showOverlay;
     b.classList.toggle('on', on);
     b.setAttribute('aria-label', on ? 'Hide sheep details' : 'Show sheep details');
+  }
+
+  /* ---------------- sound ------------------------------------------------
+     A sheep is a set of transforms, and sound.js reads each one as a voice.
+     Everything the synthesiser needs comes out of the genome, so the sound
+     morphs when the stream morphs and closes when the loop closes without
+     anything here having to know about either.
+
+     Off by default, and the AudioContext is built on the toggle itself
+     because that is the user gesture the autoplay policy wants. All three
+     ways in - the toolbar button, A, and View > Sound - come through here,
+     so the button and the checkbox can never disagree. */
+  function ensureAudio() {
+    if (app.audio) return app.audio;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC || !window.FlameAudio) return null;
+    try { app.audio = new window.FlameAudio(new AC()); }
+    catch (e) { app.audio = null; return null; }
+    app.audio.start();
+    app.audio.setVolume(app.settings.soundVolume);
+    return app.audio;
+  }
+
+  /* A saved preference cannot start a context on its own, so a returning
+     visitor with sound on gets it back at their next click or keypress
+     rather than having to find the button again. */
+  function armAudioResume() {
+    function go() {
+      if (app.audio && app.audio.ctx.state === 'suspended') app.audio.ctx.resume();
+      window.removeEventListener('pointerdown', go, true);
+      window.removeEventListener('keydown', go, true);
+    }
+    window.addEventListener('pointerdown', go, true);
+    window.addEventListener('keydown', go, true);
+  }
+
+  function setSound(on) {
+    on = !!on;
+    if (on && !ensureAudio()) { toast('This browser has no Web Audio'); on = false; }
+    if (app.audio) app.audio.setActive(on);
+    app.settings.soundOn = on;
+    saveSettings();
+    syncSoundBtn();
+    if (app.panels.sound) app.panels.sound.refresh();   // the checkbox lives in the Sound pane
+  }
+  function toggleSound() { setSound(!app.settings.soundOn); }
+
+  /* Volume has two controls - the toolbar trackbar and the Sheep pane's
+     slider - and, like every other command in this app, one implementation
+     behind them. Each calls this and this puts the other one right. */
+  var volCtl = null;          // the Sound pane's slider, while that pane exists
+  function setSoundVolume(v) {
+    app.settings.soundVolume = Math.max(0, Math.min(1, v));
+    saveSettings();
+    if (app.audio) app.audio.setVolume(app.settings.soundVolume);
+    syncVolume();
+  }
+  function syncVolume() {
+    var s = $('volSlider');
+    // never fight the control being dragged: writing .value mid-drag on
+    // Firefox snaps the thumb back under the pointer
+    if (s && document.activeElement !== s) s.value = app.settings.soundVolume;
+    if (volCtl) { try { volCtl.update(); } catch (e) { volCtl = null; } }
+  }
+
+  /* The listener's preferences, kept out of the genome on purpose: a
+     sheep's sound is entirely determined by the fields it already has, so
+     nothing new goes into the file format and every sheep ever saved
+     gained a soundtrack the day this landed. */
+  function soundOpts() {
+    return {
+      scale: app.settings.soundScale,
+      steps: app.settings.soundSteps,
+      seqMix: app.settings.soundSeqMix,
+      tone: app.settings.soundTone
+    };
+  }
+  function syncSoundBtn() {
+    var b = $('btnSound');
+    if (!b) return;
+    var on = !!app.settings.soundOn;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-label', on ? 'Turn the sound off' : 'Turn the sound on');
+  }
+
+  /* What the current sheep maps to, voice by voice. The same value the
+     details overlay gives for the picture: without it there is no way to
+     tell a mapping that is wrong from a sheep that is quiet. */
+  function soundReadout() {
+    if (!app.genome) return '';
+    var spec = SND.describe(app.genome, soundOpts());
+    var q = spec.sequence;
+    var out = '<span>key</span><b>' + SND.noteName(spec.root) + ' ' + spec.scale + '</b>';
+    if (q.on) {
+      out += '<span>pattern</span><b>' + q.steps + ' steps at ' + q.rate.toFixed(1) + '/s' +
+        (q.xaos ? ' · xaos' : '') + '</b>';
+    }
+    var n = 0;
+    for (var i = 0; i < spec.voices.length; i++) {
+      var v = spec.voices[i];
+      if (!v.on) continue;
+      n++;
+      out += '<span>voice ' + (i + 1) + '</span><b>' + SND.noteName(v.freq) +
+        ' · ' + Math.round(v.level * 100) + '%' +
+        (v.noise > 0.4 ? ' · noisy' : (v.bright > 0.6 ? ' · bright' : '')) + '</b>';
+    }
+    if (!n) out += '<span>voices</span><b>—</b>';
+    return out;
+  }
+
+  /* Control rate, not frame rate. The synthesiser wants a new description
+     often enough to sound continuous and no more often than that, and
+     describe() is cheap but not free. */
+  var SOUND_HZ = 25;
+  var soundAccum = 0;
+  function tickSound(dt) {
+    if (!app.audio || !app.settings.soundOn) return;
+    soundAccum += dt;
+    if (soundAccum < 1 / SOUND_HZ) return;
+    soundAccum = 0;
+    // whatever the renderer is drawing this instant, view offset and all -
+    // one source of truth covering the still view, a loop and a morph alike
+    var g = (app.renderer && app.renderer.genome) || app.genome;
+    if (!g) return;
+    app.audio.apply(SND.describe(g, soundOpts()), app.playing && !app.busy);
   }
 
   /* The transport row is longer than a phone is wide, so it scrolls. Mark
@@ -220,7 +351,7 @@
     // before the busy check: a render pauses playback, and the toolbar has to
     // say so rather than sitting on a stale label for the whole render
     syncTransport();
-    if (app.busy) { app.busy(dt); return; }
+    if (app.busy) { app.busy(dt); tickSound(dt); return; }
     if (!app.renderer || !app.renderer.ok || !app.genome) return;
 
     // Optional hard limit. Time still accumulates while frames are skipped, so
@@ -284,6 +415,7 @@
     app.fpsAvg += (fps - app.fpsAvg) * 0.06;
     if (app.playing) adaptQuality(dt);
     tickOverlay(dt);
+    tickSound(dt);
     updateReadout(dt);
   }
 
@@ -550,6 +682,7 @@
     buildPalettePane();
     buildRenderPane();
     buildLoopPane();
+    buildSoundPane();
     buildStreamPane();
     buildOutputPane();
     renderLibrary();
@@ -2144,8 +2277,24 @@
     }
     if (!window.MediaRecorder || !$('glcanvas').captureStream) { toast('This browser cannot record the canvas'); return; }
     var stream = $('glcanvas').captureStream(app.settings.recordFps);
+
+    /* If the sheep is playing, record what it is playing. MediaRecorder
+       muxes the two tracks itself, so this is the whole of it - the hard
+       version, where a rendered file gets a rendered soundtrack, is the
+       offline path and a different problem. Sound off means a silent
+       file rather than a broken one, so the track is added only when
+       there is something on it. */
+    var withAudio = false;
+    if (app.settings.soundOn && app.audio) {
+      var tap = app.audio.recordTap();
+      var atrk = tap && tap.stream.getAudioTracks()[0];
+      if (atrk) { stream.addTrack(atrk); withAudio = true; }
+    }
+
     var opts = { videoBitsPerSecond: app.settings.recordMbps * 1e6 };
-    var types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+    var types = withAudio
+      ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+      : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
     for (var i = 0; i < types.length; i++) { if (MediaRecorder.isTypeSupported(types[i])) { opts.mimeType = types[i]; break; } }
     var rec;
     try { rec = new MediaRecorder(stream, opts); } catch (e) { toast('Recorder failed: ' + e.message); return; }
@@ -2155,7 +2304,7 @@
       var blob = new Blob(app.recChunks, { type: 'video/webm' });
       LIB.downloadBlob(blob, 'electric-shepherd-' + Date.now().toString(36) + '.webm');
       app.recorder = null; app.recChunks = [];
-      buildOutputPane(); toast('Video saved');
+      buildOutputPane(); toast(withAudio ? 'Video saved, with sound' : 'Video saved');
     };
     rec.start(1000);
     app.recorder = rec;
@@ -2330,6 +2479,154 @@
     toast('Rendering ' + totals.frames + ' frames at ' + w + '×' + h);
   }
 
+  /* ---------------- offline audio ---------------------------------------
+     This is where "the sound is a pure function of the genome" stops being
+     a tidy idea and starts paying for itself. buildTimeline/genomeAt
+     already answer "which sheep, at what point in its loop, at second t"
+     for any t the video needs; the same call answers it for the audio, so
+     the soundtrack is evaluated over [0, duration] rather than recorded
+     off a live performance. It renders faster than real time, it does not
+     care how slow the video was, and running it twice gives the same file.
+
+     The whole performance has to be scheduled up front because an
+     OfflineAudioContext has no clock to follow, which is what the `when`
+     argument on apply() is for. */
+  var AUDIO_RATE = 48000;
+  var AUDIO_CTRL = 1 / 25;          // the same control rate the live view uses
+
+  function renderAudioBuffer(j) {
+    var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!OAC || !window.FlameAudio) return null;
+    var secs = j.totalFrames / j.fps;
+    if (!(secs > 0)) return null;
+
+    var ctx, audio;
+    try {
+      ctx = new OAC(2, Math.ceil(secs * AUDIO_RATE), AUDIO_RATE);
+      audio = new window.FlameAudio(ctx);
+    } catch (e) { return null; }
+
+    audio.start(0);
+    audio.setVolume(1, 0);          // the file is mastered, not monitored
+    audio.setActive(true, 0);
+
+    var opts = soundOpts();
+    for (var t = 0; t < secs; t += AUDIO_CTRL) {
+      var g = R.genomeAt(j.timeline, t);
+      if (!g) continue;
+      audio.apply(SND.describe(g, opts), true, t);
+    }
+    // and land silent rather than being cut off mid-note
+    audio.setActive(false, Math.max(0, secs - 0.25));
+
+    return ctx.startRendering();
+  }
+
+  /* 16-bit PCM WAV, for the browsers with no AudioEncoder. Better to hand
+     someone a soundtrack they can mux themselves than to quietly drop it. */
+  function wavBlob(buf) {
+    var n = buf.length, ch = Math.min(2, buf.numberOfChannels);
+    var bytes = 44 + n * ch * 2;
+    var v = new DataView(new ArrayBuffer(bytes)), o = 0;
+    function str(x) { for (var i = 0; i < x.length; i++) v.setUint8(o++, x.charCodeAt(i)); }
+    function u32(x) { v.setUint32(o, x, true); o += 4; }
+    function u16(x) { v.setUint16(o, x, true); o += 2; }
+    str('RIFF'); u32(bytes - 8); str('WAVE');
+    str('fmt '); u32(16); u16(1); u16(ch); u32(buf.sampleRate);
+    u32(buf.sampleRate * ch * 2); u16(ch * 2); u16(16);
+    str('data'); u32(n * ch * 2);
+    var data = [];
+    for (var c = 0; c < ch; c++) data.push(buf.getChannelData(c));
+    for (var i = 0; i < n; i++) {
+      for (var k = 0; k < ch; k++) {
+        var x = Math.max(-1, Math.min(1, data[k][i]));
+        v.setInt16(o, x < 0 ? x * 32768 : x * 32767, true); o += 2;
+      }
+    }
+    return new Blob([v.buffer], { type: 'audio/wav' });
+  }
+
+  /* AudioBuffer -> Opus, in 20ms blocks, which is Opus's own frame size. */
+  function encodeOpus(buf) {
+    return new Promise(function (resolve, reject) {
+      if (typeof AudioEncoder === 'undefined') { resolve(null); return; }
+      var chunks = [], description = null;
+      var enc;
+      try {
+        enc = new AudioEncoder({
+          output: function (chunk, meta) {
+            // the encoder hands back the OpusHead the container needs; far
+            // better to carry its word for it than to reconstruct one
+            if (meta && meta.decoderConfig && meta.decoderConfig.description && !description) {
+              var d = meta.decoderConfig.description;
+              description = new Uint8Array(d.buffer ? d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) : d);
+            }
+            var b = new Uint8Array(chunk.byteLength);
+            chunk.copyTo(b);
+            chunks.push({ data: b, timeMs: Math.round(chunk.timestamp / 1000) });
+          },
+          error: function (e) { reject(e); }
+        });
+        enc.configure({
+          codec: 'opus', sampleRate: AUDIO_RATE,
+          numberOfChannels: 2, bitrate: 128000
+        });
+      } catch (e) { resolve(null); return; }
+
+      var BLK = 960;                       // 20ms at 48k
+      var L = buf.getChannelData(0);
+      var Rc = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
+      try {
+        for (var i = 0; i < buf.length; i += BLK) {
+          var n = Math.min(BLK, buf.length - i);
+          // f32-planar wants the channels end to end in one array
+          var planar = new Float32Array(n * 2);
+          planar.set(L.subarray(i, i + n), 0);
+          planar.set(Rc.subarray(i, i + n), n);
+          enc.encode(new AudioData({
+            format: 'f32-planar', sampleRate: AUDIO_RATE,
+            numberOfFrames: n, numberOfChannels: 2,
+            timestamp: Math.round(i / AUDIO_RATE * 1e6),
+            data: planar
+          }));
+        }
+      } catch (e) { try { enc.close(); } catch (e2) { } resolve(null); return; }
+
+      enc.flush().then(function () {
+        try { enc.close(); } catch (e) { }
+        resolve(chunks.length ? {
+          chunks: chunks, sampleRate: AUDIO_RATE, channels: 2,
+          preSkip: description ? (description[10] | (description[11] << 8)) : 312,
+          description: description
+        } : null);
+      }).catch(reject);
+    });
+  }
+
+  /* Kicked off as soon as the timeline exists, so it runs alongside the
+     video rather than after it. Never fatal: a render that loses its
+     soundtrack is still a render, and says so. */
+  function startAudioRender(j) {
+    j.audio = null; j.audioWav = null; j.audioNote = '';
+    if (!app.settings.renderSound || !j.wantVideo) return;
+    var p;
+    try { p = renderAudioBuffer(j); } catch (e) { p = null; }
+    if (!p) { j.audioNote = ' (no soundtrack — this browser has no offline audio)'; return; }
+    j.audioReady = p.then(function (buf) {
+      if (typeof AudioEncoder === 'undefined') {
+        j.audioWav = wavBlob(buf);
+        j.audioNote = ' — soundtrack saved separately as .wav';
+        return null;
+      }
+      return encodeOpus(buf).then(function (a) {
+        if (a) j.audio = a;
+        else { j.audioWav = wavBlob(buf); j.audioNote = ' — soundtrack saved separately as .wav'; }
+      });
+    }).catch(function (e) {
+      j.audioNote = ' (soundtrack failed: ' + e.message + ')';
+    });
+  }
+
   function renderSetupEncoder(j) {
     if (!j.wantVideo) { j.zip = new window.FlameRender.ZipWriter(); return; }
     j.encoder = new VideoEncoder({
@@ -2398,6 +2695,8 @@
       });
       if (!j.timeline.segments.length) { cancelRender('Nothing to render'); return; }
       try { renderSetupEncoder(j); } catch (e) { cancelRender('Could not start encoder: ' + e.message); return; }
+      // the soundtrack renders alongside the video rather than after it
+      startAudioRender(j);
       j.phase = 'render';
       return;
     }
@@ -2510,7 +2809,7 @@
       renderStatus('Done — ' + j.totalFrames + ' frames in ' + fmtDuration(secs) +
         ' (' + fmtBytes(blob.size) + ')');
       renderBar(1);
-      toast('Render finished: ' + fmtDuration(secs));
+      toast('Render finished: ' + fmtDuration(secs) + (j.audioNote || (j.audio ? ', with sound' : '')));
     }
 
     function writeFile(blob, ext) {
@@ -2544,16 +2843,26 @@
         clearInterval(poll);
         if (j.cancelled) return;
         try { j.encoder.close(); } catch (e) { }
-        renderStatus('Encoding complete — muxing ' + j.chunks.length + ' frames…');
-        setTimeout(function () {
+        renderStatus(j.audioReady
+          ? 'Encoding complete — finishing the soundtrack…'
+          : 'Encoding complete — muxing ' + j.chunks.length + ' frames…');
+        // the audio has been rendering all along; usually it is already
+        // done and this resolves on the spot
+        (j.audioReady || Promise.resolve()).then(function () {
           if (j.cancelled) return;
-          var blob = R.muxWebM(j.chunks, {
-            width: j.w, height: j.h,
-            codec: app.settings.renderFormat,
-            frameDurMs: 1000 / j.fps
-          });
-          writeFile(blob, '.webm');
-        }, 60);
+          renderStatus('Muxing ' + j.chunks.length + ' frames…');
+          setTimeout(function () {
+            if (j.cancelled) return;
+            var blob = R.muxWebM(j.chunks, {
+              width: j.w, height: j.h,
+              codec: app.settings.renderFormat,
+              frameDurMs: 1000 / j.fps,
+              audio: j.audio
+            });
+            if (j.audioWav) LIB.downloadBlob(j.audioWav, 'electric-shepherd-' + Date.now().toString(36) + '.wav');
+            writeFile(blob, '.webm');
+          }, 60);
+        });
       }).catch(function (e) {
         clearInterval(poll);
         if (!j.cancelled) cancelRender('Encoding failed: ' + e.message);
@@ -2691,6 +3000,15 @@
         get: function () { return app.settings.renderMbps; },
         set: function (v) { app.settings.renderMbps = v | 0; saveSettings(); updateRenderEstimate(); }
       });
+      U.check(p, gf, {
+        label: 'Soundtrack', note: 'render the sheep as audio too',
+        title: 'The sound is a function of the genome, so it is rendered over the same timeline as the picture rather than recorded — it does not matter how slow the render was.',
+        get: function () { return app.settings.renderSound; },
+        set: function (v) { app.settings.renderSound = v; saveSettings(); }
+      });
+      if (app.settings.renderSound && typeof AudioEncoder === 'undefined') {
+        U.hint(gf, 'This browser has no AudioEncoder, so the soundtrack will be saved beside the video as a .wav rather than muxed into it.');
+      }
     }
 
     var gq = U.group(root, 'Quality');
@@ -3181,6 +3499,7 @@
         case 'v': e.preventDefault(); toggleFullscreen(); break;
         case 'u': toggleCinema(); break;
         case 'h': toggleOverlay(); break;
+        case 'a': toggleSound(); break;
         case '+': case '=':
           if (streamOwnsCamera()) { app.view.zoom = Math.min(20, app.view.zoom * 1.1); if (app.panels.sheep) app.panels.sheep.refresh(); }
           else { app.genome.camera.zoom *= 1.1; touch(true); }
@@ -3197,6 +3516,64 @@
     syncTransport();
   }
 
+  function buildSoundPane() {
+    var root = document.querySelector('[data-pane=sound]');
+    var p = new U.Panel(root); app.panels.sound = p; p.clear();
+
+    var gp = U.group(root, 'Play');
+    U.check(p, gp, {
+      label: 'Play the sheep', title: 'A — every transform becomes a voice',
+      get: function () { return app.settings.soundOn; },
+      set: function (v) { setSound(v); }
+    });
+    volCtl = U.slider(p, gp, {
+      label: 'Volume', min: 0, max: 1, step: 0.01, reset: 0.6,
+      fmt: function (v) { return Math.round(v * 100) + '%'; },
+      get: function () { return app.settings.soundVolume; },
+      set: setSoundVolume
+    });
+
+    var gm = U.group(root, 'Voices');
+    U.slider(p, gm, {
+      label: 'Tone', min: 0, max: 1, step: 0.01, reset: 0.3,
+      title: 'How sharply the variations are put. Low is soft and rounded; high brings back the edge, the noise and the metallic sidebands.',
+      fmt: function (v) { return v <= 0.02 ? 'softest' : (v >= 0.98 ? 'sharpest' : Math.round(v * 100) + '%'); },
+      get: function () { return app.settings.soundTone; },
+      set: function (v) { app.settings.soundTone = v; saveSettings(); }
+    });
+    U.slider(p, gm, {
+      label: 'Drone / notes', min: 0, max: 1, step: 0.01, reset: 0.6,
+      title: 'All the way left is a held chord; all the way right is only the sequence',
+      fmt: function (v) { return v <= 0.001 ? 'drone' : (v >= 0.999 ? 'notes' : Math.round(v * 100) + '% notes'); },
+      get: function () { return app.settings.soundSeqMix; },
+      set: function (v) { app.settings.soundSeqMix = v; saveSettings(); }
+    });
+    U.slider(p, gm, {
+      label: 'Notes / second', min: 1, max: 16, step: 1, reset: 6,
+      title: 'The chaos game runs at this rate; a whole number of steps is fitted to the loop',
+      get: function () { return app.settings.soundSteps; },
+      set: function (v) { app.settings.soundSteps = v | 0; saveSettings(); refreshSoundInfo(); }
+    });
+    U.select(p, gm, {
+      label: 'Scale',
+      options: [{ value: 'auto', label: 'From the palette' }, { value: 'off', label: 'Off — no quantising' }]
+        .concat(SND.SCALE_NAMES.map(function (n) { return { value: n, label: n }; })),
+      get: function () { return app.settings.soundScale; },
+      set: function (v) { app.settings.soundScale = v; saveSettings(); refreshSoundInfo(); }
+    });
+    U.hint(gm, 'The sequence is the chaos game slowed down: the same draw the renderer ' +
+      'makes a million times a second, at a rate you can hear. Which transform may follow ' +
+      'which is the xaos matrix in the Transforms panel, so a sparse one is a riff.');
+
+    var gr = U.group(root, 'This sheep');
+    var sinfo = U.el('div', { class: 'kv' });
+    gr.appendChild(sinfo);
+    p.add({ el: sinfo, update: function () { sinfo.innerHTML = soundReadout(); } });
+    U.hint(gr, 'Nothing on this tab is saved into the sheep — every sheep already carries ' +
+      'everything the sound needs, so a flock saved before any of this existed plays too.');
+  }
+  function refreshSoundInfo() { if (app.panels.sound) app.panels.sound.refresh(); }
+
   /* ---------- tabs --------------------------------------------------------- */
   function bindTabs() {
     var tabs = $('tabs');
@@ -3212,6 +3589,7 @@
       if (name === 'evolve') { buildEvolvePane(); if (!app.pop) seedPopulation(); }
       if (name === 'library') renderLibrary();
       if (name === 'loop') buildLoopPane();
+      if (name === 'sound') buildSoundPane();
       if (name === 'stream') buildStreamPane();
       if (name === 'output') buildOutputPane();
     });
@@ -3263,6 +3641,19 @@
       saveSettings();
     }
 
+    /* The first sound settings were tuned by arithmetic rather than by ear,
+       and by ear they were sharp: too many notes, too much sequence, no
+       tone control at all. Anyone who tried it already has those values
+       saved, and a changed default would never reach them - so move them
+       once, exactly as drift and the overlay were moved. */
+    if (!app.settings.soundCalmed) {
+      app.settings.soundSteps = DEFAULT_SETTINGS.soundSteps;
+      app.settings.soundSeqMix = DEFAULT_SETTINGS.soundSeqMix;
+      app.settings.soundTone = DEFAULT_SETTINGS.soundTone;
+      app.settings.soundCalmed = true;
+      saveSettings();
+    }
+
     app.genome = GEN.randomGenome((Math.random() * 4294967296) >>> 0, genOpts());
     if (app.settings.keepImage && app.settings.imageLook) {
       app.genome.render = Object.assign(GEN.defaultRender(), app.settings.imageLook);
@@ -3283,6 +3674,8 @@
     $('btnKeep').onclick = doKeep;
     $('btnStream').onclick = toggleStream;
     $('btnOverlay').onclick = toggleOverlay;
+    $('btnSound').onclick = toggleSound;
+    $('volSlider').addEventListener('input', function () { setSoundVolume(parseFloat(this.value)); });
     $('btnClearAcc').onclick = function () { app.renderer.clearAccum(); app.renderer.resetPoints(app.genome.seed || 1); };
     $('qualityPreset').onchange = function () {
       var v = this.value; this.value = '';
@@ -3317,6 +3710,12 @@
 
     requestAnimationFrame(frame);
     syncOverlayBtn();
+    // sound was on last time: build the context now and let the first click
+    // or keypress un-suspend it, since a page load is not a user gesture
+    if (app.settings.soundOn && ensureAudio()) { app.audio.setActive(true); armAudioResume(); }
+    else app.settings.soundOn = false;
+    syncSoundBtn();
+    syncVolume();
     toast('Ready — press R for a new sheep');
 
     if (FIRST_LOAD) runFirstLoadBenchmark();

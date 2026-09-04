@@ -76,8 +76,27 @@
     Tracks: 0x1654AE6B, TrackEntry: 0xAE, TrackNumber: 0xD7, TrackUID: 0x73C5,
     TrackType: 0x83, CodecID: 0x86, Video: 0xE0, PixelWidth: 0xB0, PixelHeight: 0xBA,
     DefaultDuration: 0x23E383,
-    Cluster: 0x1F43B675, Timecode: 0xE7, SimpleBlock: 0xA3
+    Cluster: 0x1F43B675, Timecode: 0xE7, SimpleBlock: 0xA3,
+    Audio: 0xE1, SamplingFrequency: 0xB5, Channels: 0x9F,
+    CodecPrivate: 0x63A2, CodecDelay: 0x56AA, SeekPreRoll: 0x56BB
   };
+
+  /* The 19-byte OpusHead a WebM audio track carries as CodecPrivate. Opus
+     has no in-band way to say its channel count or how many samples the
+     decoder must throw away at the start, so the container has to. */
+  function opusHead(channels, preSkip, rate) {
+    var b = new Uint8Array(19), i;
+    var tag = 'OpusHead';
+    for (i = 0; i < 8; i++) b[i] = tag.charCodeAt(i);
+    b[8] = 1;                                   // version
+    b[9] = channels;
+    b[10] = preSkip & 0xff; b[11] = (preSkip >> 8) & 0xff;
+    b[12] = rate & 0xff; b[13] = (rate >> 8) & 0xff;
+    b[14] = (rate >> 16) & 0xff; b[15] = (rate >> 24) & 0xff;
+    b[16] = 0; b[17] = 0;                       // output gain
+    b[18] = 0;                                  // mapping family: mono/stereo
+    return b;
+  }
 
   /* frames: [{data:Uint8Array, timeMs:Number, key:Boolean}] */
   function muxWebM(frames, opts) {
@@ -100,30 +119,72 @@
     ]));
 
     var videoEl = el(ID.Video, concat([elUint(ID.PixelWidth, w), elUint(ID.PixelHeight, h)]));
-    var trackEntry = el(ID.TrackEntry, concat([
+    var trackEls = [el(ID.TrackEntry, concat([
       elUint(ID.TrackNumber, 1), elUint(ID.TrackUID, 1), elUint(ID.TrackType, 1),
       elStr(ID.CodecID, codecId),
       elUint(ID.DefaultDuration, Math.round((opts.frameDurMs || 33) * 1e6)),
       videoEl
-    ]));
-    var tracks = el(ID.Tracks, trackEntry);
+    ]))];
 
-    // one cluster per keyframe (block timecodes are int16 relative to it)
+    /* An optional second track. `au` is { chunks: [{timeMs, data}],
+       sampleRate, channels, preSkip } - whatever AudioEncoder produced,
+       plus the numbers only the container can state. */
+    var au = opts.audio && opts.audio.chunks && opts.audio.chunks.length ? opts.audio : null;
+    if (au) {
+      trackEls.push(el(ID.TrackEntry, concat([
+        elUint(ID.TrackNumber, 2), elUint(ID.TrackUID, 2), elUint(ID.TrackType, 2),
+        elStr(ID.CodecID, 'A_OPUS'),
+        // the encoder's own OpusHead where it gave us one, since it knows
+        // its lookahead better than we can guess it
+        el(ID.CodecPrivate, au.description || opusHead(au.channels, au.preSkip, au.sampleRate)),
+        // the samples the decoder discards, and how far a player must back
+        // up before a seek for the output to be correct - 80ms, per spec
+        elUint(ID.CodecDelay, Math.round(au.preSkip / 48000 * 1e9)),
+        elUint(ID.SeekPreRoll, 80000000),
+        el(ID.Audio, concat([
+          elFloat(ID.SamplingFrequency, au.sampleRate),
+          elUint(ID.Channels, au.channels)
+        ]))
+      ])));
+    }
+    var tracks = el(ID.Tracks, concat(trackEls));
+
+    /* One cluster per keyframe, with the audio interleaved into it by
+       timestamp. Block timecodes are signed 16-bit and relative to the
+       cluster, so a cluster may not run more than about 32 seconds - the
+       existing 30s cut already covers that, and cutting only at video
+       keyframes keeps every cluster seekable. */
+    var blocks = [];
+    var i;
+    for (i = 0; i < frames.length; i++) {
+      blocks.push({ t: frames[i].timeMs, track: 1, key: frames[i].key, data: frames[i].data });
+    }
+    if (au) {
+      for (i = 0; i < au.chunks.length; i++) {
+        blocks.push({ t: au.chunks[i].timeMs, track: 2, key: true, data: au.chunks[i].data });
+      }
+      // video first on a tie, so a cluster always opens on its keyframe
+      blocks.sort(function (a, b) { return (a.t - b.t) || (a.track - b.track); });
+    }
+
     var clusters = [], cur = null, curBase = 0;
     function flushCluster() {
       if (!cur || !cur.length) return;
       clusters.push(el(ID.Cluster, concat([elUint(ID.Timecode, curBase)].concat(cur))));
       cur = null;
     }
-    for (var i = 0; i < frames.length; i++) {
-      var f = frames[i];
-      if (!cur || f.key || (f.timeMs - curBase) > 30000) { flushCluster(); cur = []; curBase = f.timeMs; }
-      var rel = f.timeMs - curBase;
+    for (i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      var startsCluster = b.track === 1 && b.key;
+      if (!cur || startsCluster || (b.t - curBase) > 30000) {
+        flushCluster(); cur = []; curBase = b.t;
+      }
+      var rel = b.t - curBase;
       var head = new Uint8Array(4);
-      head[0] = 0x81;                              // track 1, EBML vint
+      head[0] = 0x80 | b.track;                    // track number as an EBML vint
       head[1] = (rel >> 8) & 0xff; head[2] = rel & 0xff;
-      head[3] = f.key ? 0x80 : 0x00;
-      cur.push(el(ID.SimpleBlock, concat([head, f.data])));
+      head[3] = b.key ? 0x80 : 0x00;
+      cur.push(el(ID.SimpleBlock, concat([head, b.data])));
     }
     flushCluster();
 
@@ -238,6 +299,7 @@
 
   global.FlameRender = {
     muxWebM: muxWebM,
+    opusHead: opusHead,
     ZipWriter: ZipWriter,
     buildTimeline: buildTimeline,
     genomeAt: genomeAt,
