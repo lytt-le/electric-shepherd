@@ -6,6 +6,7 @@
 
   var GEN = window.FlameGenome, VAR = window.FlameVariations, PAL = window.FlamePalette;
   var EVO = window.FlameEvolve, LIB = window.FlameLibrary, U = window.UI;
+  var SND = window.FlameSound;
 
   var DEFAULT_SETTINGS = {
     points: 256, passes: 14, ss: 2, resScale: 1, autoQuality: true,
@@ -22,6 +23,7 @@
     endlessAvoidRepeat: true,
     streamSource: 'flock', streamDriftOn: false, streamDrift: 3, streamDriftStrength: 0.22, streamDriftTries: 3,
     streamDriftHold: 0,
+    soundOn: false, soundVolume: 0.6,
     exportScale: 2, exportPasses: 900, exportSize: 'view', exportW: 1920, exportH: 1080,
     recordFps: 30, recordMbps: 12,
     renderSource: 'flock', renderSeconds: 20, renderW: 1920, renderH: 1080,
@@ -58,6 +60,9 @@
     // rewrites the genome every frame, so a camera edit there would be wiped
     // instantly; this rides on top instead and survives sheep changes.
     view: { panX: 0, panY: 0, zoom: 1, rot: 0 },
+    // the synthesiser, built on first use - an AudioContext may only be
+    // created from a user gesture, so this stays null until asked for
+    audio: null,
     recorder: null,
     recChunks: [],
     busy: null,
@@ -134,6 +139,95 @@
     var on = !!app.settings.showOverlay;
     b.classList.toggle('on', on);
     b.setAttribute('aria-label', on ? 'Hide sheep details' : 'Show sheep details');
+  }
+
+  /* ---------------- sound ------------------------------------------------
+     A sheep is a set of transforms, and sound.js reads each one as a voice.
+     Everything the synthesiser needs comes out of the genome, so the sound
+     morphs when the stream morphs and closes when the loop closes without
+     anything here having to know about either.
+
+     Off by default, and the AudioContext is built on the toggle itself
+     because that is the user gesture the autoplay policy wants. All three
+     ways in - the toolbar button, A, and View > Sound - come through here,
+     so the button and the checkbox can never disagree. */
+  function ensureAudio() {
+    if (app.audio) return app.audio;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC || !window.FlameAudio) return null;
+    try { app.audio = new window.FlameAudio(new AC()); }
+    catch (e) { app.audio = null; return null; }
+    app.audio.start();
+    app.audio.setVolume(app.settings.soundVolume);
+    return app.audio;
+  }
+
+  /* A saved preference cannot start a context on its own, so a returning
+     visitor with sound on gets it back at their next click or keypress
+     rather than having to find the button again. */
+  function armAudioResume() {
+    function go() {
+      if (app.audio && app.audio.ctx.state === 'suspended') app.audio.ctx.resume();
+      window.removeEventListener('pointerdown', go, true);
+      window.removeEventListener('keydown', go, true);
+    }
+    window.addEventListener('pointerdown', go, true);
+    window.addEventListener('keydown', go, true);
+  }
+
+  function setSound(on) {
+    on = !!on;
+    if (on && !ensureAudio()) { toast('This browser has no Web Audio'); on = false; }
+    if (app.audio) app.audio.setActive(on);
+    app.settings.soundOn = on;
+    saveSettings();
+    syncSoundBtn();
+    if (app.panels.sheep) app.panels.sheep.refresh();   // the checkbox lives in the Sheep pane
+  }
+  function toggleSound() { setSound(!app.settings.soundOn); }
+  function syncSoundBtn() {
+    var b = $('btnSound');
+    if (!b) return;
+    var on = !!app.settings.soundOn;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-label', on ? 'Turn the sound off' : 'Turn the sound on');
+  }
+
+  /* What the current sheep maps to, voice by voice. The same value the
+     details overlay gives for the picture: without it there is no way to
+     tell a mapping that is wrong from a sheep that is quiet. */
+  function soundReadout() {
+    if (!app.genome) return '';
+    var spec = SND.describe(app.genome);
+    var out = '<span>root</span><b>' + SND.noteName(spec.root) + '</b>';
+    var n = 0;
+    for (var i = 0; i < spec.voices.length; i++) {
+      var v = spec.voices[i];
+      if (!v.on) continue;
+      n++;
+      out += '<span>voice ' + (i + 1) + '</span><b>' + SND.noteName(v.freq) +
+        ' · ' + Math.round(v.level * 100) + '%' +
+        (v.noise > 0.4 ? ' · noisy' : (v.bright > 0.6 ? ' · bright' : '')) + '</b>';
+    }
+    if (!n) out += '<span>voices</span><b>—</b>';
+    return out;
+  }
+
+  /* Control rate, not frame rate. The synthesiser wants a new description
+     often enough to sound continuous and no more often than that, and
+     describe() is cheap but not free. */
+  var SOUND_HZ = 25;
+  var soundAccum = 0;
+  function tickSound(dt) {
+    if (!app.audio || !app.settings.soundOn) return;
+    soundAccum += dt;
+    if (soundAccum < 1 / SOUND_HZ) return;
+    soundAccum = 0;
+    // whatever the renderer is drawing this instant, view offset and all -
+    // one source of truth covering the still view, a loop and a morph alike
+    var g = (app.renderer && app.renderer.genome) || app.genome;
+    if (!g) return;
+    app.audio.apply(SND.describe(g), app.playing && !app.busy);
   }
 
   /* The transport row is longer than a phone is wide, so it scrolls. Mark
@@ -220,7 +314,7 @@
     // before the busy check: a render pauses playback, and the toolbar has to
     // say so rather than sitting on a stale label for the whole render
     syncTransport();
-    if (app.busy) { app.busy(dt); return; }
+    if (app.busy) { app.busy(dt); tickSound(dt); return; }
     if (!app.renderer || !app.renderer.ok || !app.genome) return;
 
     // Optional hard limit. Time still accumulates while frames are skipped, so
@@ -284,6 +378,7 @@
     app.fpsAvg += (fps - app.fpsAvg) * 0.06;
     if (app.playing) adaptQuality(dt);
     tickOverlay(dt);
+    tickSound(dt);
     updateReadout(dt);
   }
 
@@ -643,6 +738,28 @@
     U.buttons(gv, [
       { label: 'Reset view', class: 'primary', title: 'F', onclick: function () { resetView(); } }
     ]);
+
+    var gsn = U.group(root, 'Sound', { key: 'sound', collapsed: true });
+    U.check(p, gsn, {
+      label: 'Play the sheep', title: 'A — every transform becomes a voice',
+      get: function () { return app.settings.soundOn; },
+      set: function (v) { setSound(v); }
+    });
+    U.slider(p, gsn, {
+      label: 'Volume', min: 0, max: 1, step: 0.01, reset: 0.6,
+      fmt: function (v) { return Math.round(v * 100) + '%'; },
+      get: function () { return app.settings.soundVolume; },
+      set: function (v) {
+        app.settings.soundVolume = v; saveSettings();
+        if (app.audio) app.audio.setVolume(v);
+      }
+    });
+    var sinfo = U.el('div', { class: 'kv' });
+    gsn.appendChild(sinfo);
+    p.add({ el: sinfo, update: function () { sinfo.innerHTML = soundReadout(); } });
+    U.hint(gsn, 'Pitch comes from how far each transform contracts, level from its ' +
+      'weight and opacity, and timbre from its variations. Nothing here is saved into ' +
+      'the sheep — every sheep already carries everything the sound needs.');
 
     var gg = U.group(root, 'New sheep recipe', { collapsed: true });
     U.slider(p, gg, {
@@ -3181,6 +3298,7 @@
         case 'v': e.preventDefault(); toggleFullscreen(); break;
         case 'u': toggleCinema(); break;
         case 'h': toggleOverlay(); break;
+        case 'a': toggleSound(); break;
         case '+': case '=':
           if (streamOwnsCamera()) { app.view.zoom = Math.min(20, app.view.zoom * 1.1); if (app.panels.sheep) app.panels.sheep.refresh(); }
           else { app.genome.camera.zoom *= 1.1; touch(true); }
@@ -3283,6 +3401,7 @@
     $('btnKeep').onclick = doKeep;
     $('btnStream').onclick = toggleStream;
     $('btnOverlay').onclick = toggleOverlay;
+    $('btnSound').onclick = toggleSound;
     $('btnClearAcc').onclick = function () { app.renderer.clearAccum(); app.renderer.resetPoints(app.genome.seed || 1); };
     $('qualityPreset').onchange = function () {
       var v = this.value; this.value = '';
@@ -3317,6 +3436,11 @@
 
     requestAnimationFrame(frame);
     syncOverlayBtn();
+    // sound was on last time: build the context now and let the first click
+    // or keypress un-suspend it, since a page load is not a user gesture
+    if (app.settings.soundOn && ensureAudio()) { app.audio.setActive(true); armAudioResume(); }
+    else app.settings.soundOn = false;
+    syncSoundBtn();
     toast('Ready — press R for a new sheep');
 
     if (FIRST_LOAD) runFirstLoadBenchmark();

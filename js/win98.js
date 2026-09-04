@@ -77,6 +77,7 @@
       { label: 'Restart Exposure', key: 'C', run: btn('btnClearAcc') },
       { sep: true },
       { label: 'Sheep Details', key: 'H', run: btn('btnOverlay'), check: on('btnOverlay') },
+      { label: 'Sound', key: 'A', run: btn('btnSound'), check: on('btnSound') },
       { label: 'Hide Panels', key: 'U', run: key('u'),
         check: function () { return document.body.classList.contains('cinema'); } },
       { label: 'Full Screen', key: 'V', run: btn('btnFull') }

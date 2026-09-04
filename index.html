@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Electric Shepherd — local flame engine</title>
-<link rel="stylesheet" href="css/style.css?v=7">
-<!-- The ?v=7 on every asset below is a cache buster. index.html itself is
+<link rel="stylesheet" href="css/style.css?v=8">
+<!-- The ?v=8 on every asset below is a cache buster. index.html itself is
      served no-cache, but the CSS and JS carry a long max-age, so without a
      changing URL a CDN keeps handing out the old ones after a deploy - new
      markup against stale styles, which looks like the UI has broken. Bump
-     every ?v=7 together when you deploy; see MAINTAINING.md. -->
+     every ?v=8 together when you deploy; see MAINTAINING.md. -->
 </head>
 <!-- The shell is a Windows 98 application window: title bar, menu bar,
      toolbar, client area, status bar, sitting on a desktop with a taskbar.
@@ -92,6 +92,9 @@
       <span class="tsep" aria-hidden="true"></span>
       <button id="btnOverlay" class="ib" title="H — show / hide the sheep details overlay" aria-label="Show sheep details">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="12" y1="17" x2="12" y2="11"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      </button>
+      <button id="btnSound" class="ib" title="A — play the sheep" aria-label="Turn the sound on">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><polygon class="solid" points="4 9 8 9 13 5 13 19 8 15 4 15"/><path d="M17 9.5a4 4 0 0 1 0 5"/><path d="M19.5 7a7.5 7.5 0 0 1 0 10"/></svg>
       </button>
       <button id="btnFull" class="ib" title="V — fullscreen viewfinder (U hides the panels without going fullscreen)" aria-label="Fullscreen">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5"/><path d="M21 8V3h-5"/><path d="M16 21h5v-5"/><path d="M3 16v5h5"/></svg>
@@ -199,19 +202,21 @@
   </div>
 </div>
 
-<script src="js/variations.js?v=7"></script>
-<script src="js/shaders.js?v=7"></script>
-<script src="js/palette.js?v=7"></script>
-<script src="js/genome.js?v=7"></script>
-<script src="js/renderer.js?v=7"></script>
-<script src="js/evolve.js?v=7"></script>
-<script src="js/library.js?v=7"></script>
-<script src="js/render.js?v=7"></script>
-<script src="js/ui.js?v=7"></script>
+<script src="js/variations.js?v=8"></script>
+<script src="js/shaders.js?v=8"></script>
+<script src="js/palette.js?v=8"></script>
+<script src="js/genome.js?v=8"></script>
+<script src="js/renderer.js?v=8"></script>
+<script src="js/sound.js?v=8"></script>
+<script src="js/audiograph.js?v=8"></script>
+<script src="js/evolve.js?v=8"></script>
+<script src="js/library.js?v=8"></script>
+<script src="js/render.js?v=8"></script>
+<script src="js/ui.js?v=8"></script>
 <!-- js/help.js mirrors README.md by hand: edit both together -->
-<script src="js/help.js?v=7"></script>
-<script src="js/main.js?v=7"></script>
+<script src="js/help.js?v=8"></script>
+<script src="js/main.js?v=8"></script>
 <!-- last: it wires itself to buttons the others create -->
-<script src="js/win98.js?v=7"></script>
+<script src="js/win98.js?v=8"></script>
 </body>
 </html>
