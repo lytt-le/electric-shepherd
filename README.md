@@ -100,6 +100,9 @@ brings the look it was saved with: that is its picture, not a preference.
 returns to exactly where it started, so it can repeat forever without a seam. This panel
 is where that animation is built. See *The loop* below.
 
+**Sound** — every sheep can be listened to as well as looked at. See *The sound*
+below.
+
 **Evolve** — a gallery of candidates. Click thumbnails to pick parents and press
 **Breed**, or turn on **Auto-evolve** and let the fitness heuristic (coverage, tonal
 range, colourfulness, detail, contrast — all weightable) select on its own and drop the
@@ -226,6 +229,7 @@ delete. Import `.sheep.json` / `.flock.json` files, or just drag them onto the w
 | `V` | fullscreen viewfinder |
 | `U` | hide the panels without going fullscreen |
 | `H` | show / hide the sheep details overlay (off by default; also a button in the toolbar) |
+| `A` | sound on / off (off by default; also a button in the toolbar, with the volume beside it) |
 | `?` / `F1` | open the in-app handbook |
 | `+` / `-` | zoom |
 
@@ -244,7 +248,7 @@ Drag the canvas to pan, scroll to zoom, shift-drag to rotate, double-click to au
 The toolbar is icons rather than words, so it fits a phone as readily as a desktop. Hover
 any of them for its name and shortcut; the order is previous, play/pause, next,
 random, mutate, fit, keep, stream, clear, the quality preset, the details overlay,
-fullscreen and the handbook.
+sound and its volume, fullscreen and the handbook.
 
 Above it sits a menu bar — **File**, **View**, **Panels**, **Stream**, **Help** — and at
 the foot of the screen a taskbar with a **Start** menu. Neither can do anything the
@@ -334,6 +338,113 @@ unaffected either way; it has no motion to pace, so it falls back to **Hold**.
 The on-screen overlay shows the length in force while a stream runs — `20.0s` when a
 sheep is using its own, `7.0s fixed` when the override is on. That is the whole rhythm of the original
 project: settle on a sheep, watch it breathe a few times, move on.
+
+## The sound
+
+Press `A`. Every sheep is also an instrument, and nothing is added to a sheep to make
+that true — the sound is derived from the genome it already has, so a flock saved
+before any of this existed plays, and two people with the same `.sheep.json` hear the
+same thing.
+
+That one decision is what makes the rest work. Because the sound is a function of the
+genome and the stream already hands out continuous intermediate genomes, a morph
+crossfades without any separate audio interpolation to keep in step. Because
+`applyLoop` is periodic in phase, the sound closes when the picture closes. And
+because the offline renderer can already say which sheep is on screen at second *t*,
+the soundtrack of a render is *evaluated* over the timeline rather than recorded off a
+performance.
+
+### A transform is a voice
+
+| Genome | Sound |
+|---|---|
+| `weight` × `opacity` | how loud the voice is — how much it draws is how much you hear |
+| affine contraction | pitch. A map that repeats the picture at every scale *s* repeats the spectrum at the same ratio |
+| the two axis scales | how far apart they are is spectral tilt and filter resonance |
+| affine rotation | where the voice sits in the stereo field |
+| `color` | its hue in the palette, which is its note in the scale |
+| `colorSpeed` | how fast it slides onto that note |
+| `vars[]` | timbre — see below |
+
+Variations are not looked up as oscillator types. That would be a switch, and a switch
+clicks and cannot be interpolated. Each of the 81 is projected onto five continuous
+axes — brightness, noise, inharmonicity, resonance and fold — and the variation
+weights become the mixing coefficients, so a stack of eight moves smoothly as its
+weights do. Inversive maps like `spherical` blow up near the origin and scatter the
+spectrum the way they scatter the picture; the 19 variations already tagged as
+stochastic are the noisy ones; `julian` and `cpow` carry a power parameter, and an
+*n*-fold rotational symmetry is an integer frequency ratio, which is why they sound
+metallic in a way that tracks what they draw. A negative variation weight draws the
+shape inside out, so it plays the same note in anti-phase.
+
+### The sequence is the chaos game
+
+The picture is drawn by a token hopping between transforms: one is chosen with
+probability proportional to its weight, and `xaos` decides which may follow which. Run
+the identical hop at six notes a second instead of a million and every landing is a
+note — so the melody and the image are the same process at two rates, not two systems
+sharing an app.
+
+This is also what finally makes `xaos` audible. It is the most abstract control in the
+interface, and a sparse one is the difference between a wandering line and a riff. A
+new random sheep has no xaos matrix, so its sequence is a plain weighted walk; mutate
+or breed one and the matrix starts to bite.
+
+The walk is seeded from the genome, so the same sheep plays the same riff — today,
+next year, on any machine. The number of steps is a whole number fitted to the loop,
+for the same reason a motion channel's cycles are whole numbers, so the riff comes
+round exactly with the picture. Notes are scheduled on the audio clock rather than on
+frames: the frame loop deliberately loses time on a hitch rather than jumping, which
+is right for a picture and would be a dropped note here.
+
+### The palette is the harmony
+
+Each voice reads its hue at its own colour index, so **palette rotate transposes** —
+and since that is one of the motion channels, a sheep whose palette cycles once per
+loop transposes once per loop and lands exactly back where it started.
+
+The scale comes from the palette generator where one was used — mono is a single hue
+and has nothing to argue about, triadic is three — and is measured as circular
+variance otherwise. **Scale** on the Sound tab overrides it, and *Off* leaves the
+pitches unquantised.
+
+### The image settings are the mixing desk
+
+The Image tab has always been a chain of decisions about light, and most of them turn
+out to be statements about a room.
+
+| Image setting | Sound |
+|---|---|
+| brightness | output level |
+| gamma, gamma threshold | compression curve and threshold — both are tone curves over dynamic range |
+| glow | reverb send: light bleeding out of the bright areas is a tail around loud events |
+| glow radius / threshold | room size and how dark the tail goes; how much of it there is |
+| vignette | master low-pass |
+| saturation | stereo width |
+| symmetry | detuned copies, fading in with the count |
+| mirror | one copy phase-inverted — a reflection |
+| grain | noise floor, which is the same thing in both media |
+| camera zoom | filter cutoff: closer is brighter |
+| camera spin | one pass across the stereo field per revolution, in the direction it turns |
+
+Nothing on the Sound tab is saved into a sheep. Volume, the drone/notes balance, note
+rate and scale lock are yours, like the quality settings — the sheep supplies
+everything else.
+
+### Getting it out
+
+**Record** on the Render tab captures the live view, and picks up the sound with it if
+the sound is on. **Render** builds the file properly: the soundtrack is rendered over
+the same timeline as the picture, in one pass, faster than real time, so it does not
+matter how slow the render was. Firefox has no `AudioEncoder`, so there the soundtrack
+is saved beside the video as a `.wav` you can mux yourself; the tab says so before you
+start.
+
+One honest limit. The loop's picture guarantee is exact — phase 0 and phase 1.0 differ
+by zero pixels. For sound the guarantee is that **every control value and the note
+pattern close exactly**, which is verified; the raw waveform is not sample-identical
+across the seam, because an oscillator's phase carries on. There is no seam to hear,
+but it is not the same claim.
 
 ## Rendering out
 
