@@ -311,6 +311,10 @@ body.win-blur .titlebar{background:linear-gradient(90deg,var(--nav-i),var(--nav-
 #btnPlay.paused .ico-pause{display:none}
 #btnPlay.paused .ico-play{display:block}
 .transport select{width:auto;min-width:82px}
+/* The volume trackbar, beside the speaker it belongs to. Short on purpose:
+   the strip already has to fit a phone, and this is a nudge control rather
+   than something anyone sets precisely. */
+.transport .tvol{flex:0 0 auto;width:62px}
 .spacer{flex:1}
 
 /* ---------- status bar ---------- */
@@ -841,6 +845,7 @@ body.mobile .transport .ib{width:44px;padding:0;box-shadow:var(--up);background:
 body.mobile .transport .ib:active:not(:disabled){box-shadow:var(--down)}
 body.mobile .ib svg{width:22px;height:22px}
 body.mobile .transport select{padding:0 22px 0 10px}
+body.mobile .transport .tvol{flex:0 0 auto;width:96px;height:44px}
 body.mobile .tsep{display:none}
 body.mobile .menubtn{flex:0 0 auto;gap:6px;min-height:44px;padding:0 12px;font-size:13px}
 .menubtn .mb-ico{

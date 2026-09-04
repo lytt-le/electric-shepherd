@@ -185,6 +185,24 @@
     if (app.panels.sheep) app.panels.sheep.refresh();   // the checkbox lives in the Sheep pane
   }
   function toggleSound() { setSound(!app.settings.soundOn); }
+
+  /* Volume has two controls - the toolbar trackbar and the Sheep pane's
+     slider - and, like every other command in this app, one implementation
+     behind them. Each calls this and this puts the other one right. */
+  var volCtl = null;          // the Sheep pane's slider, while that pane exists
+  function setSoundVolume(v) {
+    app.settings.soundVolume = Math.max(0, Math.min(1, v));
+    saveSettings();
+    if (app.audio) app.audio.setVolume(app.settings.soundVolume);
+    syncVolume();
+  }
+  function syncVolume() {
+    var s = $('volSlider');
+    // never fight the control being dragged: writing .value mid-drag on
+    // Firefox snaps the thumb back under the pointer
+    if (s && document.activeElement !== s) s.value = app.settings.soundVolume;
+    if (volCtl) { try { volCtl.update(); } catch (e) { volCtl = null; } }
+  }
   function syncSoundBtn() {
     var b = $('btnSound');
     if (!b) return;
@@ -745,14 +763,11 @@
       get: function () { return app.settings.soundOn; },
       set: function (v) { setSound(v); }
     });
-    U.slider(p, gsn, {
+    volCtl = U.slider(p, gsn, {
       label: 'Volume', min: 0, max: 1, step: 0.01, reset: 0.6,
       fmt: function (v) { return Math.round(v * 100) + '%'; },
       get: function () { return app.settings.soundVolume; },
-      set: function (v) {
-        app.settings.soundVolume = v; saveSettings();
-        if (app.audio) app.audio.setVolume(v);
-      }
+      set: setSoundVolume
     });
     var sinfo = U.el('div', { class: 'kv' });
     gsn.appendChild(sinfo);
@@ -3402,6 +3417,7 @@
     $('btnStream').onclick = toggleStream;
     $('btnOverlay').onclick = toggleOverlay;
     $('btnSound').onclick = toggleSound;
+    $('volSlider').addEventListener('input', function () { setSoundVolume(parseFloat(this.value)); });
     $('btnClearAcc').onclick = function () { app.renderer.clearAccum(); app.renderer.resetPoints(app.genome.seed || 1); };
     $('qualityPreset').onchange = function () {
       var v = this.value; this.value = '';
@@ -3441,6 +3457,7 @@
     if (app.settings.soundOn && ensureAudio()) { app.audio.setActive(true); armAudioResume(); }
     else app.settings.soundOn = false;
     syncSoundBtn();
+    syncVolume();
     toast('Ready — press R for a new sheep');
 
     if (FIRST_LOAD) runFirstLoadBenchmark();
