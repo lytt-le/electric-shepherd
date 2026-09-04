@@ -483,6 +483,13 @@
     // of the spectrum in the same spirit
     cutoff *= 1 - clamp(finite(r.vignette, 0), 0, 1) * 0.45;
 
+    /* Everything below is quoted against the slider it comes from, using
+       that slider's real range rather than a guessed one - glow runs
+       0..1.5, symmetry 1..16, gamma 1..8 - so a setting at its default
+       lands somewhere sensible and a setting at either end goes all the
+       way there. */
+    var spin = finite(cam.spin, 0);
+
     return {
       root: harm.root,
       scale: harm.scaleName,
@@ -493,7 +500,48 @@
         gain: clamp(finite(r.brightness, 3.2) / 3.2, 0.25, 2.2),
         cutoff: clamp(cutoff, 160, 14000),
         // grain is literally a noise floor in both media
-        hiss: clamp(finite(r.grain, 0), 0, 1) * 0.06
+        hiss: clamp(finite(r.grain, 0) / 0.2, 0, 1) * 0.05,
+
+        /* Glow is light bleeding out of the bright areas of a picture.
+           A tail around loud events is the same statement. Threshold
+           decides how bright a thing has to be before it glows, so a low
+           one means more of it and a longer tail; radius is how far it
+           spreads, which is room size and how dark the tail gets. */
+        reverb: {
+          send: clamp(finite(r.glow, 0.25) / 1.5, 0, 1) * 0.55,
+          size: clamp(finite(r.glowRadius, 2) / 8, 0.05, 1),
+          decay: clamp(1 - finite(r.glowThreshold, 0.55) / 1.5, 0, 1),
+          damp: clamp(finite(r.glowRadius, 2) / 8, 0, 1)
+        },
+
+        /* Saturation is how far the colours travel from grey, which is
+           how wide the stereo image is. Symmetry is the count of
+           rotational copies laid over the picture, so it is the count of
+           detuned copies laid over the sound - it is a whole number and
+           cannot be averaged, so the engine crossfades it exactly as the
+           morph code crossfades the two symmetry orders. */
+        chorus: {
+          width: clamp(finite(r.saturation, 1) / 2.5, 0, 1),
+          depth: 0.15 + clamp(finite(r.vibrancy, 1), 0, 1) * 0.35,
+          copies: clamp(finite(r.symmetry, 1), 1, 16),
+          mirror: r.symmetryMirror ? 1 : 0
+        },
+
+        /* Gamma and its threshold are a tone curve over dynamic range,
+           which is what a compressor is. Higher gamma lifts the faint
+           structure; a higher threshold keeps the ramp near black linear,
+           so less of the quiet material gets lifted. */
+        comp: {
+          ratio: clamp(1 + (finite(r.gamma, 4) - 1) * 0.8, 1, 8),
+          threshold: -20 + clamp(finite(r.gammaThreshold, 0.02) / 0.2, 0, 1) * 14
+        },
+
+        /* The frame turning, heard. One pass across the stereo field per
+           revolution, in the direction it actually turns. */
+        pan: {
+          rate: Math.min(2, Math.abs(spin) / (Math.PI * 2)),
+          depth: clamp(spin * 1.2, -0.9, 0.9)
+        }
       },
       voices: voices,
       sequence: sequenceOf(g, xf, sumW, opts, GEN.loopSeconds(g))

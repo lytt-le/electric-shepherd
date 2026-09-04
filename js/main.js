@@ -2275,8 +2275,24 @@
     }
     if (!window.MediaRecorder || !$('glcanvas').captureStream) { toast('This browser cannot record the canvas'); return; }
     var stream = $('glcanvas').captureStream(app.settings.recordFps);
+
+    /* If the sheep is playing, record what it is playing. MediaRecorder
+       muxes the two tracks itself, so this is the whole of it - the hard
+       version, where a rendered file gets a rendered soundtrack, is the
+       offline path and a different problem. Sound off means a silent
+       file rather than a broken one, so the track is added only when
+       there is something on it. */
+    var withAudio = false;
+    if (app.settings.soundOn && app.audio) {
+      var tap = app.audio.recordTap();
+      var atrk = tap && tap.stream.getAudioTracks()[0];
+      if (atrk) { stream.addTrack(atrk); withAudio = true; }
+    }
+
     var opts = { videoBitsPerSecond: app.settings.recordMbps * 1e6 };
-    var types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+    var types = withAudio
+      ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+      : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
     for (var i = 0; i < types.length; i++) { if (MediaRecorder.isTypeSupported(types[i])) { opts.mimeType = types[i]; break; } }
     var rec;
     try { rec = new MediaRecorder(stream, opts); } catch (e) { toast('Recorder failed: ' + e.message); return; }
@@ -2286,7 +2302,7 @@
       var blob = new Blob(app.recChunks, { type: 'video/webm' });
       LIB.downloadBlob(blob, 'electric-shepherd-' + Date.now().toString(36) + '.webm');
       app.recorder = null; app.recChunks = [];
-      buildOutputPane(); toast('Video saved');
+      buildOutputPane(); toast(withAudio ? 'Video saved, with sound' : 'Video saved');
     };
     rec.start(1000);
     app.recorder = rec;

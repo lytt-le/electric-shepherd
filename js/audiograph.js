@@ -27,7 +27,17 @@
    to the step scheduler - and in series they would fight over one
    AudioParam every time the balance moved.
 
-   Master: bus ─→ busFilter ─→ hiss? ─→ masterGain ─→ volume ─→ gate ─→ limiter ─→ out
+   Master: bus ─→ busFilter ─┬→ dry ────────────────┐
+                             └→ send ─→ reverb ─────┤
+                                                    ↓
+     ─→ chorus/width ─→ autopan ─→ comp ─→ masterGain ─→ volume ─→ gate ─→ limiter ─→ out
+
+   The reverb is four feedback combs and a pair of diffusers rather than
+   a convolver, for one reason: every control has to be continuous. A
+   convolver's tail lives in its impulse response, and changing the room
+   size means swapping the buffer, which is exactly the kind of switch
+   this file exists to avoid. Comb delay times and feedback gains are
+   AudioParams and ramp like everything else.
    ===================================================================== */
 (function (global) {
   'use strict';
@@ -61,6 +71,39 @@
       c[i] = Math.tanh(x * 2) / Math.tanh(2);
     }
     return c;
+  }
+
+  /* A feedback comb: the delay is inside the loop, which is what makes
+     the cycle legal in Web Audio, and the lowpass in the loop is what
+     makes each pass round darker than the last, the way a real room is. */
+  function Comb(c, base, sink) {
+    this.base = base;
+    this.delay = c.createDelay(0.3);
+    this.delay.delayTime.value = base;
+    this.damp = c.createBiquadFilter();
+    this.damp.type = 'lowpass';
+    this.damp.frequency.value = 5000;
+    this.fb = c.createGain();
+    this.fb.gain.value = 0.6;
+    this.delay.connect(this.damp);
+    this.damp.connect(this.fb);
+    this.fb.connect(this.delay);
+    this.delay.connect(sink);
+  }
+  Comb.prototype.set = function (size, fb, damp, t) {
+    param(this.delay.delayTime, this.base * (0.4 + size * 1.6), t, 0.2);
+    param(this.fb.gain, fb, t, 0.2);
+    param(this.damp.frequency, 1200 + (1 - damp) * 9000, t, 0.2);
+  };
+
+  /* A short delay with feedback, smearing what the combs produce into
+     something without an obvious pulse. Fixed: nothing in the picture has
+     an opinion about diffusion. */
+  function diffuser(c, time, sink) {
+    var d = c.createDelay(0.05), fb = c.createGain();
+    d.delayTime.value = time; fb.gain.value = 0.5;
+    d.connect(fb); fb.connect(d); d.connect(sink);
+    return d;
   }
 
   function param(p, v, t, tc) {
@@ -199,6 +242,68 @@
     this.busFilt.type = 'lowpass';
     this.busFilt.frequency.value = 1400;
     this.busFilt.Q.value = 0.6;
+    /* ---- reverb: send, four combs, two diffusers a side ---- */
+    this.revSend = c.createGain(); this.revSend.gain.value = 0;
+    this.dry = c.createGain(); this.dry.gain.value = 1;
+    this.revMix = c.createGain(); this.revMix.gain.value = 1;
+    var combSum = c.createGain(); combSum.gain.value = 0.25;
+    // Freeverb's comb lengths, which are chosen to be mutually prime so
+    // the four loops do not line up into a single ringing pitch
+    var BASE = [0.0297, 0.0371, 0.0411, 0.0437];
+    this.combs = [];
+    for (var ci = 0; ci < BASE.length; ci++) {
+      var cb = new Comb(c, BASE[ci], combSum);
+      this.revSend.connect(cb.delay);
+      this.combs.push(cb);
+    }
+    // two sides, deliberately mismatched, so the tail is not a point source
+    var panL = c.createStereoPanner ? c.createStereoPanner() : c.createGain();
+    var panR = c.createStereoPanner ? c.createStereoPanner() : c.createGain();
+    if (panL.pan) { panL.pan.value = -0.85; panR.pan.value = 0.85; }
+    var dL = diffuser(c, 0.0051, panL), dL2 = diffuser(c, 0.0126, dL);
+    var dR = diffuser(c, 0.0047, panR), dR2 = diffuser(c, 0.0141, dR);
+    combSum.connect(dL2); combSum.connect(dR2);
+    panL.connect(this.revMix); panR.connect(this.revMix);
+
+    /* ---- chorus / stereo width ----
+       Three taps, because symmetry counts copies and the third fades in
+       as that count rises rather than appearing all at once. One LFO
+       drives them in opposition, which is what makes it width rather
+       than a wobble. */
+    this.chIn = c.createGain(); this.chIn.gain.value = 1;
+    this.chDry = c.createGain(); this.chDry.gain.value = 1;
+    this.chLfo = c.createOscillator(); this.chLfo.type = 'sine';
+    this.chLfo.frequency.value = 0.15;
+    this.chTaps = [];
+    var TAPB = [0.010, 0.018, 0.025], TPAN = [-0.7, 0.7, 0.2];
+    for (var ti = 0; ti < 3; ti++) {
+      var dl = c.createDelay(0.08); dl.delayTime.value = TAPB[ti];
+      var md = c.createGain(); md.gain.value = 0;      // LFO depth, signed
+      var tg = c.createGain(); tg.gain.value = 0;      // tap level
+      var tp = c.createStereoPanner ? c.createStereoPanner() : null;
+      if (tp) tp.pan.value = TPAN[ti];
+      this.chLfo.connect(md); md.connect(dl.delayTime);
+      this.chIn.connect(dl); dl.connect(tg);
+      if (tp) { tg.connect(tp); } 
+      this.chTaps.push({ base: TAPB[ti], delay: dl, mod: md, gain: tg, pan: tp });
+    }
+
+    /* ---- auto-pan: the camera's own rotation ---- */
+    this.autoPan = c.createStereoPanner ? c.createStereoPanner() : null;
+    this.panLfo = c.createOscillator(); this.panLfo.type = 'sine';
+    this.panLfo.frequency.value = 0.0001;
+    this.panDepth = c.createGain(); this.panDepth.gain.value = 0;
+    this.panLfo.connect(this.panDepth);
+    if (this.autoPan) this.panDepth.connect(this.autoPan.pan);
+
+    /* ---- the tone curve, as a compressor ---- */
+    this.comp = c.createDynamicsCompressor();
+    this.comp.threshold.value = -18;
+    this.comp.knee.value = 12;
+    this.comp.ratio.value = 3.4;
+    this.comp.attack.value = 0.012;
+    this.comp.release.value = 0.25;
+
     this.master = c.createGain(); this.master.gain.value = 1;
     this.vol = c.createGain(); this.vol.gain.value = 1;
     /* Turning the sound off fades this and suspends the context; it does
@@ -223,10 +328,22 @@
     this.hiss.buffer = buf; this.hiss.loop = true;
     this.hissGain = c.createGain(); this.hissGain.gain.value = 0;
     this.hiss.connect(this.hissGain);
-    this.hissGain.connect(this.master);
+    this.hissGain.connect(this.comp);
 
     this.bus.connect(this.busFilt);
-    this.busFilt.connect(this.master);
+    this.busFilt.connect(this.dry);
+    this.busFilt.connect(this.revSend);
+    this.dry.connect(this.chIn);
+    this.revMix.connect(this.chIn);
+    this.chIn.connect(this.chDry);
+    var chOut = this.autoPan || this.comp;
+    this.chDry.connect(chOut);
+    for (var k = 0; k < this.chTaps.length; k++) {
+      var tk = this.chTaps[k];
+      (tk.pan || tk.gain).connect(chOut);
+    }
+    if (this.autoPan) this.autoPan.connect(this.comp);
+    this.comp.connect(this.master);
     this.master.connect(this.vol);
     this.vol.connect(this.gate);
     this.gate.connect(this.limiter);
@@ -245,11 +362,26 @@
     var t = this.ctx.currentTime;
     for (var i = 0; i < this.voices.length; i++) this.voices[i].start(t);
     this.hiss.start(t);
+    this.chLfo.start(t);
+    this.panLfo.start(t);
   };
 
   FlameAudio.prototype.setVolume = function (v) {
     this.volume = Math.max(0, Math.min(1, v));
     param(this.vol.gain, this.volume, this.ctx.currentTime, 0.03);
+  };
+
+  /* A tap for the recorder, made once and left connected. It sits after
+     the limiter, so what lands in the file is what came out of the
+     speakers - including the volume, which is the honest reading: a
+     recording made with the volume down is a quiet recording. */
+  FlameAudio.prototype.recordTap = function () {
+    if (!this.ctx.createMediaStreamDestination) return null;
+    if (!this.tap) {
+      this.tap = this.ctx.createMediaStreamDestination();
+      this.limiter.connect(this.tap);
+    }
+    return this.tap;
   };
 
   /* On and off, without tearing anything down. The fade comes first and the
@@ -275,9 +407,11 @@
      than a restart and the oscillators keep their phase. */
   FlameAudio.prototype.apply = function (spec, gate) {
     var t = this.ctx.currentTime;
-    param(this.busFilt.frequency, spec.master.cutoff, t, 0.06);
-    param(this.master.gain, spec.master.gain, t, 0.06);
-    param(this.hissGain.gain, gate ? spec.master.hiss : 0, t, 0.1);
+    var m = spec.master;
+    param(this.busFilt.frequency, m.cutoff, t, 0.06);
+    param(this.master.gain, m.gain, t, 0.06);
+    param(this.hissGain.gain, gate ? m.hiss : 0, t, 0.1);
+    this.setBus(m, t);
     var seq = spec.sequence;
     var drone = (seq && seq.on) ? 1 - seq.mix : 1;
     for (var i = 0; i < this.voices.length; i++) {
@@ -285,6 +419,61 @@
     }
     if (seq) this.runSeq(seq, gate, t);
   };
+
+  /* Everything the picture's own look decides about the bus. Slower time
+     constants than the voices get: these are the character of the room
+     rather than the notes in it, and a room that changes as fast as a
+     note reads as a fault. */
+  FlameAudio.prototype.setBus = function (m, t) {
+    var i, tk;
+
+    var rv = m.reverb;
+    param(this.revSend.gain, rv.send, t, 0.15);
+    // constant-power against the send, so turning glow up does not also
+    // turn the whole mix up
+    param(this.dry.gain, 1 - rv.send * 0.35, t, 0.15);
+    // 0.87 is as far as the feedback may go: past about 0.9 the four
+    // loops stop decaying and the reverb runs away
+    var fb = 0.45 + rv.decay * 0.42;
+    for (i = 0; i < this.combs.length; i++) this.combs[i].set(rv.size, fb, rv.damp, t);
+
+    /* Symmetry is a count of copies. The third tap fades in across two to
+       eight of them rather than appearing at three, and the taps spread
+       further apart as the count rises, so a sixteen-fold sheep is
+       genuinely thicker than a two-fold one without anything switching. */
+    var ch = m.chorus;
+    var spread = 1 + (ch.copies - 1) * 0.06;
+    var lvl = [0.5, 0.5, 0.35], fade;
+    for (i = 0; i < this.chTaps.length; i++) {
+      tk = this.chTaps[i];
+      // the third tap is the one symmetry brings in, and it arrives across
+      // two to eight copies rather than appearing at three
+      fade = i < 2 ? 1 : clamp01((ch.copies - 2) / 6);
+      param(tk.delay.delayTime, tk.base * spread, t, 0.2);
+      /* Mirror adds a reflected copy to the picture. Its counterpart here
+         is a phase-inverted one, which is what makes a stereo image read
+         as wide and hollow rather than centred - and because it is a sign
+         on a gain, turning it on ramps through zero, so it crossfades in
+         the way symmetry itself does across a morph rather than switching. */
+      var phase = (i === 1 && ch.mirror) ? -1 : 1;
+      param(tk.gain.gain, ch.width * lvl[i] * fade * 0.5 * phase, t, 0.12);
+      // the two outer taps are modulated in opposition; that, and not the
+      // delay itself, is what turns a wobble into width
+      param(tk.mod.gain, (i === 1 ? -1 : 1) * ch.depth * 0.004, t, 0.12);
+    }
+    param(this.chDry.gain, 1 - ch.width * 0.25, t, 0.12);
+    param(this.chLfo.frequency, 0.12 + ch.copies * 0.03, t, 0.2);
+
+    // an oscillator at 0Hz is not a pan of zero, it is a pan stuck at
+    // whatever phase it stopped on, so hold a floor and use depth to stop
+    param(this.panLfo.frequency, Math.max(0.01, m.pan.rate), t, 0.2);
+    param(this.panDepth.gain, m.pan.depth, t, 0.15);
+
+    param(this.comp.ratio, m.comp.ratio, t, 0.2);
+    param(this.comp.threshold, m.comp.threshold, t, 0.2);
+  };
+
+  function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
 
   /* ---------------- the chaos game, at six notes a second --------------
      Exactly the draw the renderer's inner loop makes - a transform picked
